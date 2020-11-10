@@ -2,7 +2,7 @@ import torch
 from torch.distributions.categorical import Categorical
 from torch import nn
 from torch.autograd import Variable
-
+import random
 
 import numpy as np
 import cv2
@@ -13,6 +13,13 @@ import matplotlib.pyplot as plt
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+ACTION_SET = [[-1, 1],[0, 1],[1, 1],
+              [-1, 0],[0, 0],[1, 0],
+              [-1,-1],[0,-1],[1,-1]]
+
+N_ACTION = len(ACTION_SET)
+
+
 class FireMap:
 
     def __init__(self):
@@ -20,6 +27,12 @@ class FireMap:
         self.map_width = 50
         self.map_height = 50
         self.N_state = 3
+
+        ### Drone State ###
+        self.drone_pos = [25,25]
+        self.drone_obs_windows = torch.zeros((3,3,3))
+        self.drone_state_windows = torch.zeros((3,3,3))
+
 
         ### State Variable ###
         self.init_prob_dist = torch.zeros(self.N_state, self.map_width, self.map_height).to(DEVICE)
@@ -58,7 +71,7 @@ class FireMap:
                 GAMMA0 = 0.1
                 param[1][0][:][:] = torch.Tensor([[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]])
                 param[1][1][:][:] = torch.Tensor([[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0]])
-                param[1][2][:][:] = torch.Tensor([[0.0, 0.0, 0.0],[0.0, 0.0, 0.0],[0.0, 0.0, 0.0]])
+                param[1][2][:][:] = torch.Tensor([[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]]) #torch.Tensor([[0.0, 0.0, 0.0],[0.0, 0.0, 0.0],[0.0, 0.0, 0.0]])
 
                 # Probability to be fire state (output: 2)
                 ALPHA0 = 0.999
@@ -91,14 +104,24 @@ class FireMap:
 
     def render(self):
         img_state = self.realization_state.data.permute(1,2,0).cpu().numpy().squeeze()
+        cv2.rectangle(img_state, (self.drone_pos[1]-1, self.drone_pos[0]-1), (self.drone_pos[1]+1, self.drone_pos[0]+1), (0, 165, 255), 1)
+        img_drone_state = self.drone_state_windows.cpu().numpy().squeeze()
+        img_drone_state = cv2.resize(img_drone_state, (self.map_width, self.map_height),interpolation = cv2.INTER_AREA)
+
         img_obs = self.observed_state.data.cpu().numpy().squeeze()
-        blank = np.zeros((self.map_height, int(self.map_width/10), 3))
-        img = np.concatenate((img_state, blank, img_obs), axis=1)
-        scale = 4
-        dim = (int(self.map_width*(2.1))*scale, self.map_height*scale)
+        cv2.rectangle(img_obs, (self.drone_pos[1]-1, self.drone_pos[0]-1), (self.drone_pos[1]+1, self.drone_pos[0]+1), (0, 165, 255), 1)
+        img_drone_obs = self.drone_obs_windows.cpu().numpy().squeeze()
+        img_drone_obs = cv2.resize(img_drone_obs, (self.map_width, self.map_height),interpolation = cv2.INTER_AREA)
+
+        blank = np.zeros((self.map_height, int(self.map_width/20), 3))
+        img = np.concatenate((img_state, blank, img_drone_state, blank, img_obs, blank, img_drone_obs), axis=1)
+        
+        scale = 6
+        dim = (int(self.map_width*(4.3))*scale, self.map_height*scale)
         img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
         cv2.imshow("image", img_resized)
         cv2.waitKey(1)
+
 
     def reset(self):
         ### Resample using the initial distribution ###
@@ -106,13 +129,17 @@ class FireMap:
         self.observed_state = self.observe()
         return self.realization_state
 
-    def step(self):
+    def step(self, move):
         state = torch.unsqueeze(self.realization_state, 0).to(DEVICE)
         prob_dist = self.transition(state).squeeze()
         prob_dist = prob_dist / torch.sum(prob_dist, 0)
         prob_to_sample = prob_dist.clone().detach()
         self.realization_state = self.sample_gridmap_from_fire_dist(prob_to_sample)
         self.observed_state = self.observe()
+
+        self.drone_pos[0] = min(max(self.drone_pos[0] + move[0], 1), self.map_width-2)
+        self.drone_pos[1] = min(max(self.drone_pos[1] + move[1], 1), self.map_height-2)
+
         return self.realization_state
 
     def observe(self):
@@ -126,6 +153,17 @@ class FireMap:
         onehot_obs_map = torch.FloatTensor(self.map_width, self.map_height, 3).to(DEVICE)
         onehot_obs_map.zero_()
         onehot_obs_map.scatter_(2, observed_map, 1)
+
+        x_drone = self.drone_pos[0]
+        y_drone = self.drone_pos[1]
+
+        state_map = self.realization_state.clone().detach().permute(1, 2, 0)
+        
+        for i in range(-1,2):
+            for j in range(-1,2):
+                self.drone_obs_windows[i][j]= onehot_obs_map[x_drone+i][y_drone+j]
+                self.drone_state_windows[i][j]= state_map[x_drone+i][y_drone+j]
+
         return onehot_obs_map
         
 
@@ -135,8 +173,10 @@ if __name__ == "__main__":
     onehot_grid_map = env.reset()
     #print(onehot_grid_map)
     env.render()
-    for i in range(10000):    
-        onehot_grid_map = env.step()
+    for i in range(10000):
+
+        act = random.randrange(N_ACTION)
+        onehot_grid_map = env.step(ACTION_SET[act])
         #print(onehot_grid_map)
         env.render()
         #break

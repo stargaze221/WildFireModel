@@ -23,13 +23,12 @@ class FireMap:
 
         ### State Variable ###
         self.init_prob_dist = torch.zeros(self.N_state, self.map_width, self.map_height).to(DEVICE)
-        self.init_prob_dist[0][:][:] = 0.9
-        self.init_prob_dist[1][:][:] = 0.1
+        self.init_prob_dist[0][:][:] = 0.99
+        self.init_prob_dist[1][:][:] = 0.01
         self.init_prob_dist[2][:][:] = 0.00
 
         ### State Observation Model ###
-        #self.observation_matrix = torch.Tensor([[0.9, 0.05, 0.05],[0.98, 0.01, 0.01],[0.01, 0.01, 0.98]]).to(DEVICE)
-        self.observation_matrix = torch.Tensor([[0.95, 0.95, 0.05],[0.03, 0.03, 0.1],[0.02, 0.02, 0.9]]).to(DEVICE)
+        self.observation_matrix = torch.Tensor([[0.95, 0.95, 0.00],[0.03, 0.03, 0.00],[0.02, 0.02, 1.0]]).to(DEVICE)
         self.observation_matrix = self.observation_matrix.repeat(self.map_width*self.map_height, 1, 1)
         
 
@@ -93,9 +92,10 @@ class FireMap:
     def render(self):
         img_state = self.realization_state.data.permute(1,2,0).cpu().numpy().squeeze()
         img_obs = self.observed_state.data.cpu().numpy().squeeze()
-        img = np.concatenate((img_state, img_obs), axis=1)
+        blank = np.zeros((self.map_height, int(self.map_width/10), 3))
+        img = np.concatenate((img_state, blank, img_obs), axis=1)
         scale = 4
-        dim = (self.map_width*2*scale, self.map_height*scale)
+        dim = (int(self.map_width*(2.1))*scale, self.map_height*scale)
         img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
         cv2.imshow("image", img_resized)
         cv2.waitKey(1)

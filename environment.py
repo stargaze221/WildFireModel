@@ -24,8 +24,8 @@ class FireMap:
 
     def __init__(self):
 
-        self.map_width = 50
-        self.map_height = 50
+        self.map_width = 100
+        self.map_height = 100
         self.N_state = 3
 
         ### Drone State ###
@@ -41,7 +41,7 @@ class FireMap:
         self.init_prob_dist[2][:][:] = 0.00
 
         ### State Observation Model ###
-        self.observation_matrix = torch.Tensor([[0.95, 0.95, 0.00],[0.03, 0.03, 0.00],[0.02, 0.02, 1.0]]).to(DEVICE)
+        self.observation_matrix = torch.Tensor([[0.98, 0.98, 0.01],[0.01, 0.01, 0.01],[0.01, 0.01, 0.98]]).to(DEVICE)
         self.observation_matrix = self.observation_matrix.repeat(self.map_width*self.map_height, 1, 1)
         
 
@@ -58,7 +58,7 @@ class FireMap:
                 param.data = torch.zeros_like(param.data)
 
                 # Probability to be normal state (output: 0) depends on the preivous state of the grid and its neighbors
-                ALPHA0 = 0.99
+                ALPHA0 = 0.9999
                 BETA0 = 1 - ALPHA0
                 GAMMA0 = 0.1
                 param[0][0][:][:] = torch.Tensor([[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0]])
@@ -66,20 +66,20 @@ class FireMap:
                 param[0][2][:][:] = torch.Tensor([[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]])
                 
                 # Probability to be latent state (output: 1)
-                ALPHA0 = 0.99
-                BETA0 = (1 - ALPHA0) *0.001
+                ALPHA0 = 0.99992
+                BETA0 = 1 - ALPHA0
                 GAMMA0 = 0.1
                 param[1][0][:][:] = torch.Tensor([[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]])
                 param[1][1][:][:] = torch.Tensor([[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0]])
-                param[1][2][:][:] = torch.Tensor([[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]]) #torch.Tensor([[0.0, 0.0, 0.0],[0.0, 0.0, 0.0],[0.0, 0.0, 0.0]])
+                param[1][2][:][:] = torch.Tensor([[0.0, 0.0, 0.0],[0.0, 0.0, 0.0],[0.0, 0.0, 0.0]])
 
                 # Probability to be fire state (output: 2)
                 ALPHA0 = 0.999
                 BETA0 = 1 - ALPHA0
                 GAMMA0 = 0.1
                 param[2][0][:][:] = torch.Tensor([[0.0, 0.0, 0.0],[0.0, 0.0, 0.0],[0.0, 0.0, 0.0]])
-                param[2][1][:][:] = torch.Tensor([[2*GAMMA0*BETA0, 2*GAMMA0*BETA0, 2*GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]])
-                param[2][2][:][:] = torch.Tensor([[2*GAMMA0*ALPHA0, 2*GAMMA0*ALPHA0, 2*GAMMA0*ALPHA0],[GAMMA0*ALPHA0, ALPHA0, GAMMA0*ALPHA0],[0.5*GAMMA0*ALPHA0, 0.5*GAMMA0*ALPHA0, .5*GAMMA0*ALPHA0]])
+                param[2][1][:][:] = torch.Tensor([[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]])
+                param[2][2][:][:] = torch.Tensor([[1.2*GAMMA0*ALPHA0, 1.2*GAMMA0*ALPHA0, 1.2*GAMMA0*ALPHA0],[GAMMA0*ALPHA0, ALPHA0, GAMMA0*ALPHA0],[0.8*GAMMA0*ALPHA0, 0.8*GAMMA0*ALPHA0, 0.8*GAMMA0*ALPHA0]])
 
             if name == 'bias':
                 print(name)
@@ -104,20 +104,14 @@ class FireMap:
 
     def render(self):
         img_state = self.realization_state.data.permute(1,2,0).cpu().numpy().squeeze()
-        cv2.rectangle(img_state, (self.drone_pos[1]-1, self.drone_pos[0]-1), (self.drone_pos[1]+1, self.drone_pos[0]+1), (0, 165, 255), 1)
-        img_drone_state = self.drone_state_windows.cpu().numpy().squeeze()
-        img_drone_state = cv2.resize(img_drone_state, (self.map_width, self.map_height),interpolation = cv2.INTER_AREA)
-
-        img_obs = self.observed_state.data.cpu().numpy().squeeze()
-        cv2.rectangle(img_obs, (self.drone_pos[1]-1, self.drone_pos[0]-1), (self.drone_pos[1]+1, self.drone_pos[0]+1), (0, 165, 255), 1)
-        img_drone_obs = self.drone_obs_windows.cpu().numpy().squeeze()
-        img_drone_obs = cv2.resize(img_drone_obs, (self.map_width, self.map_height),interpolation = cv2.INTER_AREA)
-
-        blank = np.zeros((self.map_height, int(self.map_width/20), 3))
-        img = np.concatenate((img_state, blank, img_drone_state, blank, img_obs, blank, img_drone_obs), axis=1)
         
-        scale = 6
-        dim = (int(self.map_width*(4.3))*scale, self.map_height*scale)
+        img_obs = self.observed_state.data.cpu().numpy().squeeze()
+        
+        blank = np.zeros((self.map_height, int(self.map_width/20), 3))
+        img = np.concatenate((img_state, blank, img_obs), axis=1)
+        
+        scale = 4
+        dim = (int(self.map_width*(2.3))*scale, self.map_height*scale)
         img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
         cv2.imshow("image", img_resized)
         cv2.waitKey(1)

@@ -89,6 +89,17 @@ class FireEnvironment:
         cv2.imshow("image", img_resized)
         cv2.waitKey(50)
 
+    def output_image(self, size=(800,400)):
+        img_state = self.realization_state.data.permute(1,2,0).cpu().numpy().squeeze()
+        img_obs = self.observed_state.data.cpu().numpy().squeeze()
+        blank = np.zeros((self.map_height, int(self.map_width/20), 3))
+        img = np.concatenate((img_state, blank, img_obs), axis=1)
+
+        dim = size
+        img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+
+        return img_resized
+
 
     def reset(self):
         ### Resample using the initial distribution ###

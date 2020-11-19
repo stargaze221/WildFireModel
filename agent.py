@@ -34,10 +34,8 @@ class POMDPAgent(nn.Module):
         self.state_est = (torch.ones(grid_size[0], grid_size[1], 3)/3).to(DEVICE)
         
 
-    def render(self):
+    def output_image(self, size=(1200,400)):
         img = self.state_est.data.cpu().numpy().squeeze()
-        
-        
 
         img_state0 = img[:,:,0]
         img_state1 = img[:,:,1]
@@ -45,13 +43,14 @@ class POMDPAgent(nn.Module):
 
         w, h = self.grid_size
         blank = np.zeros((h, int(w/20)))
-        img = np.concatenate((img_state0, blank, np.clip(img_state1 - img_state0, 0, 1), blank, img_state2), axis=1)
+        #img = np.concatenate((img_state0, blank, np.clip(img_state1 - img_state0, 0, 1), blank, img_state2), axis=1)
+        img = np.concatenate((img_state0, blank, img_state1, blank, img_state2), axis=1)
 
-        dim = (1200, 400)
+        dim = size
         
         img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
-        cv2.imshow("image", img_resized)
-        cv2.waitKey(50)
+
+        return img_resized
 
     def Bayesian_update(self, obs):
         '''
@@ -99,6 +98,11 @@ class POMDPAgent(nn.Module):
 
         return self.state_est
 
+def render (window_name, image):
+    cv2.imshow(window_name, image)
+    cv2.waitKey(50)
+
+
 
 
 if __name__ == "__main__":
@@ -111,8 +115,12 @@ if __name__ == "__main__":
 
     for i in range(5000):
         print(i)
-        #env.render()
-        agent.render()
+        img_env   = env.output_image()
+        img_agent = agent.output_image()
+
+        render('env', img_env)
+        render('est', img_agent)
+
         act = random.randrange(len(ACTION_SET))
         obs, state = env.step(ACTION_SET[act])
 

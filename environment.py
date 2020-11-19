@@ -114,7 +114,7 @@ class FireMap:
         dim = (int(self.map_width*(2.3))*scale, self.map_height*scale)
         img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
         cv2.imshow("image", img_resized)
-        cv2.waitKey(1)
+        cv2.waitKey(50)
 
 
     def reset(self):
@@ -167,8 +167,9 @@ if __name__ == "__main__":
     onehot_grid_map = env.reset()
     #print(onehot_grid_map)
     env.render()
-    for i in range(10000):
+    #for i in range(10000):
 
+    while True:
         act = random.randrange(N_ACTION)
         onehot_grid_map = env.step(ACTION_SET[act])
         #print(onehot_grid_map)

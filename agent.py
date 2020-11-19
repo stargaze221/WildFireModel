@@ -5,147 +5,122 @@ import numpy as np
 import cv2
 import random
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+from params import TRANSITION_CNN_LAYER_WT, DEVICE, ACTION_SET, OBSERVTAION_MATRIX
 
-ACTION_SET = [[-1, 1],[0, 1],[1, 1],
-              [-1, 0],[0, 0],[1, 0],
-              [-1,-1],[0,-1],[1,-1]]
-
-N_ACTION = len(ACTION_SET)
-
+IF_PRINT = False
 
 class POMDPAgent(nn.Module):
 
     def __init__(self, grid_size, n_obs, n_state):
         super(POMDPAgent, self).__init__()
 
-        self.grid_size = grid_size
+        self.grid_size = grid_size # (w, h)
 
+        ### Model Parameters ###
+        # State Transition
         self.transition = nn.Conv2d(3, 3, 3, stride=1, padding=1).to(DEVICE)
+        for name, param in self.transition.named_parameters():
+            if name == 'weight':
+                print(name)
+                param.data=TRANSITION_CNN_LAYER_WT['weight'].to(DEVICE)
+            if name == 'bias':
+                print(name)
+                param.data = torch.ones_like(param.data)*0
+        # State Observation
+        self.observation_matrix = OBSERVTAION_MATRIX.to(DEVICE)
+        self.obs_bmm_matrix = (self.observation_matrix.T).repeat(grid_size[0]*grid_size[1], 1, 1).to(DEVICE)
 
-        self.observation_matrix = torch.Tensor([[0.98, 0.98, 0.01],[0.01, 0.01, 0.01],[0.01, 0.01, 0.98]]).to(DEVICE)
-        #self.observation_matrix = self.observation_matrix.repeat(self.map_width*self.map_height, 1, 1)
+        # State Estimate
+        self.state_est = (torch.ones(grid_size[0], grid_size[1], 3)/3).to(DEVICE)
+        
 
+    def render(self):
+        img = self.state_est.data.cpu().numpy().squeeze()
+        
+        
 
-def render(state_grid):
-    img = state_grid.data.permute(1,2,0).cpu().numpy().squeeze()
-    scale = 4
+        img_state0 = img[:,:,0]
+        img_state1 = img[:,:,1]
+        img_state2 = img[:,:,2]
 
-    dim = (600, 600)
-    img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
-    cv2.imshow("image", img_resized)
-    cv2.waitKey(-1)
+        w, h = self.grid_size
+        blank = np.zeros((h, int(w/20)))
+        img = np.concatenate((img_state0, blank, np.clip(img_state1 - img_state0, 0, 1), blank, img_state2), axis=1)
+
+        dim = (1200, 400)
+        
+        img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+        cv2.imshow("image", img_resized)
+        cv2.waitKey(50)
+
+    def Bayesian_update(self, obs):
+        '''
+        Beysian recursive update using the following formula
+
+                   B u_k
+        u_k+1 = P --------
+                   b u_k
+
+        where
+        obs: 
+        '''
+
+        ### Bayesian Posterior ###
+        if IF_PRINT:    
+            print('obs:', obs.size())
+            print('state_est:', self.state_est.size())
+
+        u_k = self.state_est
+        u_k = u_k.reshape(-1, 3, 1) # reshape for batch matrix multiplication (BMM) 
+        obs = obs.reshape(-1, 3, 1) # reshape for batch matrix multiplication (BMM)
+
+        if IF_PRINT:    
+            print('u_k', u_k.size())
+            print('obs', obs.size())
+            print('bmm_mat', self.obs_bmm_matrix.size())
+
+        b = torch.bmm(self.obs_bmm_matrix, obs)
+        Bu_k = b*u_k
+        bu_k =  torch.sum(Bu_k, 1).unsqueeze(-1)
+        Bu_over_bu = Bu_k / bu_k
+        Bu_over_bu = Bu_over_bu.reshape(self.grid_size[0], self.grid_size[1], 3).permute(2, 0, 1).unsqueeze(0)
+
+        ### State Transitoin ###
+        prob_dist = self.transition(Bu_over_bu).squeeze()
+        prob_dist = prob_dist / torch.sum(prob_dist, 0)
+        prob_dist = prob_dist.permute(1,2,0)
+
+        if IF_PRINT:
+            print('Bu_over_bu', Bu_over_bu.size())
+            print('prob_dist', prob_dist.size())
+            print(prob_dist)
+
+        self.state_est = prob_dist
+
+        return self.state_est
+
 
 
 if __name__ == "__main__":
     from environment import FireEnvironment
 
-    env = FireEnvironment(20, 20)
+    env = FireEnvironment(50, 50)
+    agent = POMDPAgent(grid_size = (env.map_width, env.map_height), n_obs=3, n_state=3)
+    
     obs, state = env.reset()
 
-    for i in range(10):
-        act = random.randrange(N_ACTION)
+    for i in range(5000):
+        print(i)
+        #env.render()
+        agent.render()
+        act = random.randrange(len(ACTION_SET))
         obs, state = env.step(ACTION_SET[act])
 
-    agent = POMDPAgent(grid_size = (env.map_width, env.map_height), n_obs=3, n_state=3)
-
-    ### The following operation needs to be done in tensor ####
-    '''
-                B u_k
-    u_k+1 = P --------
-                b u_k
-    '''
-
-    u = torch.ones_like(state)/3
-    u_next = torch.ones_like(state)/3
-
-    print(obs.size()) 
-
-    obs_reshape = obs.reshape(-1, 3, 1)
-
-    print(obs_reshape.size())
-
-    obs_bmm_matrix = (agent.observation_matrix.T).repeat(env.map_width*env.map_height, 1, 1)
-
-    b = torch.bmm(obs_bmm_matrix, obs_reshape)
-
-    u_reshape = u.reshape(-1, 3, 1)
-
-    print('b:', b.size())
-    print('u_reshape:', u_reshape.size())
-
-    Bu = b*u_reshape
-
-    print('Bu:', Bu.size())
-
-    temp =  torch.sum(Bu, 1).unsqueeze(-1)
-    print('temp', temp.size())
-
-    Bu_over_bu = Bu / temp
-
-    print(Bu_over_bu.size())
-    print(Bu_over_bu[0])
-
-    test1 = Bu_over_bu.reshape(env.map_width, env.map_height, 3)
-    print(test1.size())
-
-
-
+        state_est = agent.Bayesian_update(obs)
 
     
 
-    IF_PRINT = False
 
-    if True:
-
-        for i in range(env.map_width):
-            for j in range(env.map_height):
-
-                u_ij = u[:,i,j]
-                if IF_PRINT: print('state est.:', u_ij)
-
-                obs_ij = obs[i][j]
-                if IF_PRINT: print('observation:', obs_ij)
-
-                if IF_PRINT:
-                    print('observation matrix')
-                    print(agent.observation_matrix)
-
-                b_given_obs_ij = torch.matmul(agent.observation_matrix.T, obs_ij)
-                if IF_PRINT:
-                    print(b_given_obs_ij)
-                    print('likelihood given obs_ij for states')
-                
-                B = torch.diag(b_given_obs_ij)
-                if IF_PRINT:
-                    print('B')
-                    print(B)
-                
-                Bu = torch.matmul(B, u_ij)
-                if IF_PRINT: print('Bu:', Bu)
-
-                bu = torch.sum(Bu)
-                Bu_over_bu = Bu/bu
-                if IF_PRINT:
-                    print(' Bu')
-                    print('----')
-                    print(' bu')
-                    print(Bu_over_bu)
-
-                u_next[:, i, j] = Bu_over_bu
-
-        print('Beysian Update')
-        #print(u_next)
-
-        #render(u_next)
-    print('u_next:', u_next.size())
-
-    error = u_next.permute(1,2,0) - test1
-    print('error:', torch.max(error), torch.min(error))
-    print(error)
-
-    render(u_next)
-    
 
 
 

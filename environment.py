@@ -11,11 +11,8 @@ import seaborn as sns
 
 import matplotlib.pyplot as plt
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+from params import ACTION_SET, TRANSITION_CNN_LAYER_WT, DEVICE, OBSERVTAION_MATRIX
 
-ACTION_SET = [[-1, 1],[0, 1],[1, 1],
-              [-1, 0],[0, 0],[1, 0],
-              [-1,-1],[0,-1],[1,-1]]
 
 N_ACTION = len(ACTION_SET)
 
@@ -41,7 +38,7 @@ class FireEnvironment:
         self.init_prob_dist[2][:][:] = 0.00
 
         ### State Observation Model ###
-        self.observation_matrix = torch.Tensor([[0.98, 0.98, 0.01],[0.01, 0.01, 0.01],[0.01, 0.01, 0.98]]).to(DEVICE)
+        self.observation_matrix = OBSERVTAION_MATRIX.to(DEVICE)
         self.observation_matrix = self.observation_matrix.repeat(self.map_width*self.map_height, 1, 1)
         
 
@@ -55,32 +52,8 @@ class FireEnvironment:
         for name, param in self.transition.named_parameters():
             if name == 'weight':
                 print(name)
-                param.data = torch.zeros_like(param.data)
-
-                # Probability to be normal state (output: 0) depends on the preivous state of the grid and its neighbors
-                ALPHA0 = 0.9999
-                BETA0 = 1 - ALPHA0
-                GAMMA0 = 0.1
-                param[0][0][:][:] = torch.Tensor([[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0]])
-                param[0][1][:][:] = torch.Tensor([[0.0, 0.0, 0.0],[0.0, 0.0, 0.0],[0.0, 0.0, 0.0]])
-                param[0][2][:][:] = torch.Tensor([[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]])
+                param.data=TRANSITION_CNN_LAYER_WT['weight'].to(DEVICE)
                 
-                # Probability to be latent state (output: 1)
-                ALPHA0 = 0.99992
-                BETA0 = 1 - ALPHA0
-                GAMMA0 = 0.1
-                param[1][0][:][:] = torch.Tensor([[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]])
-                param[1][1][:][:] = torch.Tensor([[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, ALPHA0, GAMMA0*ALPHA0],[GAMMA0*ALPHA0, GAMMA0*ALPHA0, GAMMA0*ALPHA0]])
-                param[1][2][:][:] = torch.Tensor([[0.0, 0.0, 0.0],[0.0, 0.0, 0.0],[0.0, 0.0, 0.0]])
-
-                # Probability to be fire state (output: 2)
-                ALPHA0 = 0.999
-                BETA0 = 1 - ALPHA0
-                GAMMA0 = 0.1
-                param[2][0][:][:] = torch.Tensor([[0.0, 0.0, 0.0],[0.0, 0.0, 0.0],[0.0, 0.0, 0.0]])
-                param[2][1][:][:] = torch.Tensor([[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, BETA0, GAMMA0*BETA0],[GAMMA0*BETA0, GAMMA0*BETA0, GAMMA0*BETA0]])
-                param[2][2][:][:] = torch.Tensor([[1.2*GAMMA0*ALPHA0, 1.2*GAMMA0*ALPHA0, 1.2*GAMMA0*ALPHA0],[GAMMA0*ALPHA0, ALPHA0, GAMMA0*ALPHA0],[0.8*GAMMA0*ALPHA0, 0.8*GAMMA0*ALPHA0, 0.8*GAMMA0*ALPHA0]])
-
             if name == 'bias':
                 print(name)
                 param.data = torch.ones_like(param.data)*0
@@ -110,7 +83,7 @@ class FireEnvironment:
         blank = np.zeros((self.map_height, int(self.map_width/20), 3))
         img = np.concatenate((img_state, blank, img_obs), axis=1)
         
-        scale = 4
+        scale = 2
         dim = (int(self.map_width*(2.3))*scale, self.map_height*scale)
         img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
         cv2.imshow("image", img_resized)
@@ -165,7 +138,7 @@ class FireEnvironment:
 
 
 if __name__ == "__main__":
-    env = FireEnvironment()
+    env = FireEnvironment(100, 100)
     obs, state = env.reset()
     #print(onehot_grid_map)
     env.render()

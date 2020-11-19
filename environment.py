@@ -20,12 +20,12 @@ ACTION_SET = [[-1, 1],[0, 1],[1, 1],
 N_ACTION = len(ACTION_SET)
 
 
-class FireMap:
+class FireEnvironment:
 
-    def __init__(self):
+    def __init__(self, w, h):
 
-        self.map_width = 100
-        self.map_height = 100
+        self.map_width = w
+        self.map_height = h
         self.N_state = 3
 
         ### Drone State ###
@@ -121,7 +121,7 @@ class FireMap:
         ### Resample using the initial distribution ###
         self.realization_state = self.sample_gridmap_from_fire_dist(self.init_prob_dist)
         self.observed_state = self.observe()
-        return self.realization_state
+        return self.observed_state, self.realization_state
 
     def step(self, move):
         state = torch.unsqueeze(self.realization_state, 0).to(DEVICE)
@@ -134,7 +134,7 @@ class FireMap:
         self.drone_pos[0] = min(max(self.drone_pos[0] + move[0], 1), self.map_width-2)
         self.drone_pos[1] = min(max(self.drone_pos[1] + move[1], 1), self.map_height-2)
 
-        return self.realization_state
+        return self.observed_state, self.realization_state
 
     def observe(self):
         prob_to_sample = torch.unsqueeze(self.realization_state.clone().detach().permute(1, 2, 0).reshape(-1, 3),2)
@@ -152,26 +152,28 @@ class FireMap:
         y_drone = self.drone_pos[1]
 
         state_map = self.realization_state.clone().detach().permute(1, 2, 0)
-        
+
+        '''
         for i in range(-1,2):
             for j in range(-1,2):
                 self.drone_obs_windows[i][j]= onehot_obs_map[x_drone+i][y_drone+j]
                 self.drone_state_windows[i][j]= state_map[x_drone+i][y_drone+j]
+        '''
 
         return onehot_obs_map
         
 
 
 if __name__ == "__main__":
-    env = FireMap()
-    onehot_grid_map = env.reset()
+    env = FireEnvironment()
+    obs, state = env.reset()
     #print(onehot_grid_map)
     env.render()
     #for i in range(10000):
 
     while True:
         act = random.randrange(N_ACTION)
-        onehot_grid_map = env.step(ACTION_SET[act])
+        obs, state = env.step(ACTION_SET[act])
         #print(onehot_grid_map)
         env.render()
         #break

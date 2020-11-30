@@ -51,11 +51,11 @@ class FireEnvironment:
 
         for name, param in self.transition.named_parameters():
             if name == 'weight':
-                print(name)
+                #print(name)
                 param.data=TRANSITION_CNN_LAYER_WT['weight'].to(DEVICE)
                 
             if name == 'bias':
-                print(name)
+                #print(name)
                 param.data = torch.ones_like(param.data)*0
 
         self.realization_state = self.sample_gridmap_from_fire_dist(self.init_prob_dist)

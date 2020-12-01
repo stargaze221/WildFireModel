@@ -4,7 +4,7 @@ Hard coded parameter set
 import torch
 
 
-OBSERVTAION_MATRIX = torch.Tensor([[0.98, 0.80, 0.01],[0.01, 0.19, 0.01],[0.01, 0.01, 0.98]])
+OBSERVTAION_MATRIX = torch.Tensor([[0.98, 0.90, 0.01],[0.01, 0.09, 0.01],[0.01, 0.01, 0.98]])
 
 
 
@@ -38,8 +38,8 @@ param[2][2][:][:] = torch.Tensor([[1.2*GAMMA0*ALPHA0, 1.2*GAMMA0*ALPHA0, 1.2*GAM
 TRANSITION_CNN_LAYER_WT.update({'weight':param})
 
 
-#DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#DEVICE = torch.device("cpu")
 
 ACTION_SET = [[-1, 1],[0, 1],[1, 1],
               [-1, 0],[0, 0],[1, 0],

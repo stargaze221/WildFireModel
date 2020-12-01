@@ -37,9 +37,12 @@ class HMMEstimator(nn.Module):
         self.u_k = (torch.ones(grid_size[0], grid_size[1], n_state, 1)/n_state).to(DEVICE)
 
         # Deriv of State Predictor (Denoted as Omega in the Paper)
-        self.w_k_O = torch.zeros([grid_size[0], grid_size[1], n_state, 1]+list(self.obs_param_matrix.size())) # Size: w x h x n_state x 1 x n_state x n_obs
-        self.w_k_T_weight = torch.zeros([grid_size[0], grid_size[1], n_state, 1]+list(self.params[0].size())) # Size: w x h x n_state x 1 x n_state x n_kernel (3) x n_kernel (3) x n_state
-        self.w_k_T_bias = torch.zeros([grid_size[0], grid_size[1], n_state, 1]+list(self.params[1].size())) # Size: w x h x n_state x 1 x n_state
+        self.w_k_O = torch.zeros([grid_size[0], grid_size[1], n_state, 1]+list(self.obs_param_matrix.size())).to(DEVICE)
+        # Size: w x h x n_state x 1 x n_state x n_obs
+        self.w_k_T_weight = torch.zeros([grid_size[0], grid_size[1], n_state, 1]+list(self.params[0].size())).to(DEVICE)
+        # Size: w x h x n_state x 1 x n_state x n_kernel (3) x n_kernel (3) x n_state
+        self.w_k_T_bias = torch.zeros([grid_size[0], grid_size[1], n_state, 1]+list(self.params[1].size())).to(DEVICE)
+        # Size: w x h x n_state x 1 x n_state
 
 
     def update(self, obs):
@@ -147,11 +150,13 @@ class HMMEstimator(nn.Module):
 if __name__ == "__main__":
     from environment import FireEnvironment
     
-    env = FireEnvironment(20, 20)
+    env = FireEnvironment(50, 50)
     hmm_estimator = HMMEstimator(grid_size = (env.map_width, env.map_height), n_obs=3, n_state=3)
     
     obs, state = env.reset()
-    hmm_estimator.update(obs)
+    for i in range(100):
+        hmm_estimator.update(obs)
+        print(i)
 
 
     

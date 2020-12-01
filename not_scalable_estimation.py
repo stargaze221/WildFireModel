@@ -4,11 +4,13 @@ import torch.nn.functional as F
 import numpy as np
 import cv2
 import random
+import time
 
 
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 #DEVICE = torch.device("cpu")
+
 from torch.autograd.functional import jacobian
 
 class HMMEstimator(nn.Module):
@@ -24,8 +26,8 @@ class HMMEstimator(nn.Module):
         # State Transition
         print('state transition')
         self.transition = nn.Conv2d(n_state, n_state, n_kernel, stride=1, padding=1).to(DEVICE)
-        self.param_trans_weight = torch.rand(n_state, n_kernel, n_kernel, n_state)
-        self.param_trans_bias = torch.rand(n_state)
+        self.param_trans_weight = torch.rand(n_state, n_kernel, n_kernel, n_state).to(DEVICE)
+        self.param_trans_bias = torch.rand(n_state).to(DEVICE)
         for name, param in self.transition.named_parameters():
             if name == 'weight':
                 param = self.param_trans_weight
@@ -41,9 +43,9 @@ class HMMEstimator(nn.Module):
         self.u_k = (torch.ones(grid_size[0], grid_size[1], n_state, 1)/n_state).to(DEVICE)
 
         # Derivatives of State Predictor (Denoted as Omega in the Paper)
-        self.w_k_O = torch.zeros(list(self.param_obs.size())+[grid_size[0], grid_size[1], n_state, 1]) # Size: w x h x n_state x 1 x n_state x n_obs
-        self.w_k_T_weight = torch.zeros(list(self.param_trans_weight.size())+[grid_size[0], grid_size[1], n_state, 1]) # Size: w x h x n_state x 1 x n_state x n_kernel (3) x n_kernel (3) x n_state
-        self.w_k_T_bias = torch.zeros(list(self.param_trans_bias.size())+[grid_size[0], grid_size[1], n_state, 1]) # Size: w x h x n_state x 1 x n_state
+        self.w_k_O = torch.zeros(list(self.param_obs.size())+[grid_size[0], grid_size[1], n_state, 1]).to(DEVICE) # Size: w x h x n_state x 1 x n_state x n_obs
+        self.w_k_T_weight = torch.zeros(list(self.param_trans_weight.size())+[grid_size[0], grid_size[1], n_state, 1]).to(DEVICE) # Size: w x h x n_state x 1 x n_state x n_kernel (3) x n_kernel (3) x n_state
+        self.w_k_T_bias = torch.zeros(list(self.param_trans_bias.size())+[grid_size[0], grid_size[1], n_state, 1]).to(DEVICE) # Size: w x h x n_state x 1 x n_state
 
     def update(self, obs):
         #######################
@@ -69,11 +71,11 @@ class HMMEstimator(nn.Module):
         Bu_over_bu = Bu_k / bu_k # Size : w x h x n_state x 1
 
         # Calculate P matrix using the convolution layer
-        basis0 = torch.zeros((1, self.n_state, self.grid_size[0], self.grid_size[1]))
+        basis0 = torch.zeros((1, self.n_state, self.grid_size[0], self.grid_size[1])).to(DEVICE)
         basis0[:, 0, :, :] = 1
-        basis1 = torch.zeros_like(basis0)
+        basis1 = torch.zeros_like(basis0).to(DEVICE)
         basis1[:, 1, :, :] = 1
-        basis2 = torch.zeros_like(basis0)
+        basis2 = torch.zeros_like(basis0).to(DEVICE)
         basis2[:, 2, :, :] = 1
         m = nn.Softmax(dim=1)
         P0 = m(self.transition(basis0))
@@ -101,8 +103,11 @@ class HMMEstimator(nn.Module):
             obs_bmm_matrix = obs_bmm_matrix.reshape(self.grid_size[0], self.grid_size[1], self.n_state, self.n_state)
             b = torch.matmul(obs_bmm_matrix, Y) # Size : w x h x n_state x 1
             return b
-        deriv_b_resp_param_obs = jacobian(b_likelihood_vector, self.param_obs)
+            
+        start_time = time.time()
+        deriv_b_resp_param_obs = jacobian(b_likelihood_vector, self.param_obs, create_graph=True)
         # Size: w x h x n_state x 1 x n_state x n_obs
+        print("deriv_b_resp_param_obs --- %s seconds ---" % (time.time() - start_time))
 
         # Derivative of P respect to weight
         def cal_P_given_weight(weight):
@@ -119,8 +124,11 @@ class HMMEstimator(nn.Module):
             P = torch.stack([P0, P1, P2]).squeeze()            
             return P.permute(2,3,1,0)
 
-        deriv_P_resp_weight = jacobian(cal_P_given_weight, self.param_trans_weight)
+        start_time = time.time()
+        deriv_P_resp_weight = jacobian(cal_P_given_weight, self.param_trans_weight, create_graph=True)
         # Size: (height x width x n_state x n_state) x  n_state x n_kernel x n_kernel x n_state
+        print("deriv_P_resp_weight --- %s seconds ---" % (time.time() - start_time))
+
 
         # Derivative of P respect to bias
         def cal_P_given_bias(bias):
@@ -137,13 +145,16 @@ class HMMEstimator(nn.Module):
             P = torch.stack([P0, P1, P2]).squeeze()            
             return P.permute(2,3,1,0)
 
-        deriv_P_resp_bias = jacobian(cal_P_given_bias, self.param_trans_bias)
+        start_time = time.time()
+        deriv_P_resp_bias = jacobian(cal_P_given_bias, self.param_trans_bias, create_graph=True)
         # Size: (height x width x n_state x n_state) x  n_state
+        print("deriv_P_resp_bias --- %s seconds ---" % (time.time() - start_time))
+
 
         ### Phi := P B / b^T u (I -  u b^T / b^T u)
         B = torch.diag_embed(b.squeeze())
         PB_over_bu = torch.matmul(P,B)/bu_k
-        I = torch.ones(self.grid_size[0], self.grid_size[1], self.n_state)
+        I = torch.ones(self.grid_size[0], self.grid_size[1], self.n_state).to(DEVICE)
         I = torch.diag_embed(I)
         bT = b.permute(0,1,3,2)
         u_bT_over_bu = torch.matmul(u_k, bT)/bu_k
@@ -211,11 +222,13 @@ class HMMEstimator(nn.Module):
 if __name__ == "__main__":
     from environment import FireEnvironment
     
-    env = FireEnvironment(20, 20)
+    env = FireEnvironment(50, 50)
     hmm_estimator = HMMEstimator(grid_size = (env.map_width, env.map_height), n_obs=3, n_state=3, n_kernel=3)
     
     obs, state = env.reset()
-    hmm_estimator.update(obs)
+    for i in range(100):
+        print(i)
+        hmm_estimator.update(obs)
 
 
     

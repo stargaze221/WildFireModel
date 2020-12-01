@@ -5,9 +5,10 @@ import numpy as np
 import cv2
 import random
 
-#DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-DEVICE = torch.device("cpu")
 
+
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#DEVICE = torch.device("cpu")
 from torch.autograd.functional import jacobian
 
 class HMMEstimator(nn.Module):
@@ -16,6 +17,8 @@ class HMMEstimator(nn.Module):
         super(HMMEstimator, self).__init__()
 
         self.grid_size = grid_size # (w, h)
+        self.n_obs = n_obs
+        self.n_state = n_state
 
         ### Model Parameters ###
         self.params = []
@@ -24,90 +27,111 @@ class HMMEstimator(nn.Module):
         self.transition = nn.Conv2d(3, 3, 3, stride=1, padding=1).to(DEVICE)
         for name, param in self.transition.named_parameters():
             print(name, param.size())
-            self.params.append(torch.nn.utils.parameters_to_vector(param))
+            self.params.append(param)
 
-        # Observation
-        print('observation')
-        self.observation_linear = nn.Linear(n_obs, n_state).to(DEVICE)
-        for name, param in self.observation_linear.named_parameters():
-            print(name, param.size())
-            self.params.append(torch.nn.utils.parameters_to_vector(param))
-        # List the parameters
-        self.params = torch.cat(self.params)
-        
-        # State Estimate
-        self.u_k = (torch.ones(grid_size[0], grid_size[1], 3)/3).to(DEVICE)
+        # State Observation
+        self.obs_param_matrix = torch.ones(n_state, n_obs).to(DEVICE)
+        self.obs_param_matrix = self.obs_param_matrix / torch.sum(self.obs_param_matrix, 1)
+         
+        # State Predictor
+        self.u_k = (torch.ones(grid_size[0], grid_size[1], n_state, 1)/n_state).to(DEVICE)
+
+        # Deriv of State Predictor (Denoted as Omega in the Paper)
+        self.w_k_O = torch.zeros([grid_size[0], grid_size[1], n_state, 1]+list(self.obs_param_matrix.size())) # Size: w x h x n_state x 1 x n_state x n_obs
+        self.w_k_T_weight = torch.zeros([grid_size[0], grid_size[1], n_state, 1]+list(self.params[0].size())) # Size: w x h x n_state x 1 x n_state x n_kernel (3) x n_kernel (3) x n_state
+        self.w_k_T_bias = torch.zeros([grid_size[0], grid_size[1], n_state, 1]+list(self.params[1].size())) # Size: w x h x n_state x 1 x n_state
+
 
     def update(self, obs):
+        #######################
+        ### State Predictor ###
+        #######################
+
+        ### Step1 ###
         '''
-        Step1: Bu/bu
+          B u_k
+        --------
+          b u_k
         '''
-        b = self.observation_linear(obs)
-        m = nn.Softmax(dim=2)
-        b = m(b)
-        Bu_k = b*self.u_k
+        # Calculate the likelihood vector, b
+        obs_bmm_matrix = (self.obs_param_matrix.T).repeat(self.grid_size[0]*self.grid_size[1], 1, 1).to(DEVICE)
+        obs_bmm_matrix = obs_bmm_matrix.reshape(self.grid_size[0], self.grid_size[1], self.n_state, self.n_state)
+        b = torch.matmul(obs_bmm_matrix, obs.unsqueeze(-1)) # Size : w x h x n_state x 1
+
+        # Derivative of b respect to the observation matrix
+        def b_likelihood_vector(obs_matrix):
+            obs_bmm_matrix = (self.obs_param_matrix.T).repeat(self.grid_size[0]*self.grid_size[1], 1, 1).to(DEVICE)
+            obs_bmm_matrix = obs_bmm_matrix.reshape(self.grid_size[0], self.grid_size[1], self.n_state, self.n_state)
+            b = torch.matmul(obs_bmm_matrix, obs.unsqueeze(-1))
+            return b
+        deriv_b_resp_obs_param = jacobian(b_likelihood_vector, self.obs_param_matrix) # Size: w x h x n_state x 1 x n_state x n_obs
+                
+        u_k = self.u_k # Size : w x h x n_state x 1
+        Bu_k = b*self.u_k # Size : w x h x n_state x 1
         bu_k =  torch.sum(Bu_k, 2).unsqueeze(-1)
-        Bu_over_bu = Bu_k / bu_k
+        Bu_over_bu = Bu_k / bu_k # Size : w x h x n_state x 1
 
-        
-
+        ### Step2 ###
         '''
-        Step2:  Phi [ Bu/bu ] --> u_k
+        Phi [ Bu/bu ] --> u_k
         '''
-        u_kp1 = self.transition(Bu_over_bu.permute(2, 0, 1).unsqueeze(0))
+        # Calculate u_kp1
+        u_kp1 = self.transition(Bu_over_bu.permute(3, 2, 0, 1))
         u_kp1 = u_kp1.squeeze().permute(1,2,0)
         m = nn.Softmax(dim=2)
-        u_kp1 = m(u_kp1)
+        u_kp1 = m(u_kp1).unsqueeze(-1) # Size : w x h x n_state x 1
 
+        # Derivative of Phi [ Bu/bu ] respect to Z
         def Phi(Z):
-            phi = self.transition(Z.permute(2, 0, 1).unsqueeze(0))
+            phi = self.transition(Z.permute(3, 2, 0, 1))
             phi = phi.squeeze().permute(1,2,0)
             m = nn.Softmax(dim=2)
-            return m(phi)
+            return m(phi).unsqueeze(-1)
 
-        tmp = jacobian(Phi, Bu_over_bu)
-        print(tmp.size())
-        print(tmp)
+        deriv_Phi_resp_Z = jacobian(Phi, Bu_over_bu) # Size : (w x h x n_state x 1) x (w x h x n_state x 1)
+
+        ####################################################
+        ### Recursive Updating Deriv. of State Predictor ###
+        ####################################################
+
+        ### Part 1: Omega for Observation Param ###
+        # self.w_k_O
+        # Size: (w x h x n_state x 1) x n_state x n_obs
+        # ------------------------
+        # deriv_b_resp_obs_param
+        # Size: (w x h x n_state x 1) x n_state x n_obs
+
+        # term1: (rho_B_over_rho_theta u_k + B w_k_O) / b u_k
+        term1 = (deriv_b_resp_obs_param * self.u_k.unsqueeze(-1).unsqueeze(-1))
+        term1 += b.unsqueeze(-1).unsqueeze(-1)*self.w_k_O 
+        term1 = term1*bu_k.unsqueeze(-1).unsqueeze(-1) 
+
+        # term2: rho_b_over_rho_theta^T u_k + b^T w_k_O
+        term2 = torch.sum((deriv_b_resp_obs_param * self.u_k.unsqueeze(-1).unsqueeze(-1)), 2)
+        term2 += torch.sum(b.unsqueeze(-1).unsqueeze(-1)*self.w_k_O, 2)
+        term2 = term2.unsqueeze(3)
+        term2 = term2 * Bu_k.unsqueeze(-1).unsqueeze(-1)
+        
+        # w_kp1 = deriv_Phi_resp_Z (term1 - term2)/(b u_k)^2
+        w_kp1_O = (term1 - term2)/(bu_k.unsqueeze(-1).unsqueeze(-1)**2)
+        J = deriv_Phi_resp_Z.reshape(self.grid_size[0]*self.grid_size[1]*self.n_state,-1) # A Big matrix of the Jacobian for deriv_Phi_resp_Z
+        w =  w_kp1_O.reshape(self.grid_size[0]*self.grid_size[1]*self.n_state, -1) # A Big vector of (term1 - term2)/(b u_k)^2
+        w_kp1_O = torch.matmul(J, w)
+        w_kp1_O = w_kp1_O.reshape(self.grid_size[0], self.grid_size[1], self.n_state, 1, self.n_state, self.n_obs)
+
+        ### Part 2: Omega for State Transition ###
 
         
 
 
+
+        
+        
         
 
-        '''
-        Step2_REV:  Phi [ Bu/bu ] --> u_k
-        Let us make it as a matrix multiplication.
-        '''
-        '''
-        P = []
-        unit1 = torch.zeros_like(self.u_k)
-        unit1[:,:,0] = 1
-        P_unit1 = self.transition(unit1.permute(2, 0, 1).unsqueeze(0))
-        P.append(P_unit1)
-        unit2 = torch.zeros_like(self.u_k)
-        unit2[:,:,1] = 1
-        P_unit2 = self.transition(unit2.permute(2, 0, 1).unsqueeze(0))
-        P.append(P_unit2)
-        unit3 = torch.zeros_like(self.u_k)
-        unit3[:,:,2] = 1
-        P_unit3 = self.transition(unit3.permute(2, 0, 1).unsqueeze(0))
-        P.append(P_unit3)
-        P = torch.stack(P).squeeze()
-        m = nn.Softmax(dim=1)
-        P = m(P)
-        P = P.permute(3,2,0,1)
 
-        print('Bu_over_bu', Bu_over_bu.size())
-
-        u = Bu_over_bu.unsqueeze(-1)
-        u_kp1_try = torch.matmul(P, u)
-        u00 = u[0][0]
-        M = P[0][0]
-        print(M)
-        print(u00)
-        print(torch.matmul(M.T, u00))
-        print(torch.sum(torch.matmul(M.T, u00)))
-        '''
+        
+        
 
 
 

@@ -13,3 +13,9 @@ if __name__ == "__main__":
         #print(onehot_grid_map)
         env.render()
         #break
+
+        env = FireEnvironment(50, 50)
+        hmm_estimator = HMMEstimator(grid_size = (env.map_width, env.map_height), n_kernel=3, n_obs=3, n_state=3)
+    
+        obs, state = env.reset()
+        hmm_estimator.update(obs)

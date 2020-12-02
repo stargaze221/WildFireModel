@@ -4,7 +4,7 @@ Hard coded parameter set
 import torch
 
 
-OBSERVTAION_MATRIX = torch.Tensor([[0.98, 0.90, 0.01],[0.01, 0.09, 0.01],[0.01, 0.01, 0.98]])
+OBSERVTAION_MATRIX = torch.Tensor([[0.98, 0.80, 0.01],[0.01, 0.15, 0.01],[0.01, 0.05, 0.98]])
 
 
 

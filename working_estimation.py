@@ -18,14 +18,23 @@ class DynamicAutoEncoderNetwork(nn.Module):
 
         ### Likelihood Params ###
         self.W_obs_param = torch.nn.Parameter(torch.randn(n_state, n_obs))
-
+        
         ### Encoding Likelihood ###
         self.encoder = nn.Sequential(
-            nn.Conv2d(n_state, 32, 8, stride=4), nn.ReLU(),
-            nn.Conv2d(32, 16, 4, stride=2), nn.ReLU(),
-            nn.Conv2d(16, 8, 3, stride=1), nn.ReLU(),
+            nn.Conv2d(n_state, 32, 8, stride=4),
+            #nn.Dropout2d(0.5),
+            nn.ReLU(),
+            nn.BatchNorm2d(32),
+            nn.Conv2d(32, 16, 4, stride=2),
+            #nn.Dropout2d(0.5),
+            nn.ReLU(),
+            nn.BatchNorm2d(16),
+            nn.Conv2d(16, 8, 3, stride=1),
+            #nn.Dropout2d(0.5),
+            nn.ReLU(),
+            #nn.BatchNorm2d(8),
             nn.Flatten(),
-            nn.Linear(32, encoding_dim)  #<--- 32 is hard-coded as dependent on 448 x 448 x 3.
+            nn.Linear(128, encoding_dim)  #<--- 32 is hard-coded as dependent on 448 x 448 x 3.
             )
 
         ### Reccurent Neural Network ###
@@ -39,23 +48,27 @@ class DynamicAutoEncoderNetwork(nn.Module):
         self.decoder = nn.Sequential(
             # input is Z, going into a convolution
             nn.ConvTranspose2d( nz, ngf * 8, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(ngf * 8),
+            #nn.Dropout2d(0.5),
+            #nn.BatchNorm2d(ngf * 8),
             nn.ReLU(True),
             # state size. (ngf*8) x 4 x 4
             nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf * 4),
+            #nn.Dropout2d(0.5),
+            #nn.BatchNorm2d(ngf * 4),
             nn.ReLU(True),
             # state size. (ngf*4) x 8 x 8
             nn.ConvTranspose2d( ngf * 4, ngf * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf * 2),
+            nn.Dropout2d(0.5),
+            #nn.BatchNorm2d(ngf * 2),
             nn.ReLU(True),
             # state size. (ngf*2) x 16 x 16
             nn.ConvTranspose2d( ngf * 2, ngf, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf),
+            #nn.Dropout2d(0.5),
+            #nn.BatchNorm2d(ngf),
             nn.ReLU(True),
             # state size. (ngf) x 32 x 32
-            nn.ConvTranspose2d( ngf, nc, 4, 2, 1, bias=False),
-            nn.Sigmoid()
+            nn.ConvTranspose2d( ngf, nc, 4, 2, 1, bias=False)
+            #nn.Sigmoid()
             # state size. (nc) x 64 x 64
         ) 
 
@@ -64,7 +77,7 @@ class DynamicAutoEncoderNetwork(nn.Module):
 LR_ESTIMATOR = 0.001
 BETAS = (0.5, 0.9)
 EPS = 1e-10
-
+N_SAMPLE_WINDOW = 500
 
 
 class DynamicAutoEncoder:
@@ -81,7 +94,9 @@ class DynamicAutoEncoder:
 
         ### States ###
         self.u_k = F.softmax(torch.rand(self.grid_size[0], self.grid_size[1], n_state, 1),2).to(DEVICE)
-        self.h_k = torch.zeros(1, 1, self.gru_hidden_dim).to(DEVICE)
+        self.h_k = torch.rand(1, 1, self.gru_hidden_dim).to(DEVICE)
+
+        
 
     def save_the_model(self, iteration):
         if not os.path.exists('./save/dynautoenc/'):
@@ -128,8 +143,9 @@ class DynamicAutoEncoder:
         pred_state_est = F.softmax(pred_state_est, 1)
         pred_state_est = pred_state_est.permute(2, 3, 1, 0).contiguous()
         self.u_k = pred_state_est
+        #print(torch.mean(pred_state_est), torch.max(pred_state_est), torch.min(pred_state_est))
 
-        return state_est_grid # or pred_state_est
+        return pred_state_est # pred_state_est or state_est_grid
     
     def output_image(self, state_est_grid, size=(1200,400)):
         img = state_est_grid.data.cpu().numpy().squeeze()
@@ -156,6 +172,7 @@ class DynamicAutoEncoder:
         batch_tgt_obs_stream = []
 
         O = F.softmax(self.model.W_obs_param,0)
+        O_np_val = O.data.cpu().numpy()
         O = O.unsqueeze(0).unsqueeze(0).repeat(self.grid_size[0], self.grid_size[1], 1, 1)
         O_bat = O.unsqueeze(0).repeat(N_SAMPLE_WINDOW, 1, 1, 1, 1)
 
@@ -169,7 +186,7 @@ class DynamicAutoEncoder:
             
 
             ### RNN State Predictor ###
-            h0 = torch.zeros(1, 1, self.gru_hidden_dim).to(DEVICE)
+            h0 = torch.rand(1, 1, self.gru_hidden_dim).to(DEVICE)
             output, h_n = self.model.rnn_layer(x_stream.unsqueeze(0), h0)
 
             ### Decoding ###
@@ -196,19 +213,27 @@ class DynamicAutoEncoder:
         log_p = torch.log(p)
         loss2 = -torch.mean(p*log_p)
 
-        loss = loss1 + loss2
+        loss = loss1 #+ loss2
+
+        ### loss3 ###
+        #loss3 = torch.mean(self.model.W_obs_param**2)
+
+        #loss = loss + 0.001*loss3
 
         ### Update Model ###
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        loss_val = loss.item()
 
-        del batch_obs_stream, batch_state_stream, batch_pred_obs_stream, batch_tgt_obs_stream, loss
+        loss_val = loss.item()
+        loss1_val = loss1.item()
+        loss2_val = loss2.item()
+
+        del batch_obs_stream, batch_state_stream, batch_pred_obs_stream, batch_tgt_obs_stream, loss, loss1, loss2
         torch.cuda.empty_cache()
 
-        return loss_val, loss1.item(), loss2.item()
+        return loss_val, loss1_val, loss2_val, O_np_val
 
 def render (window_name, image):
     cv2.imshow(window_name, image)
@@ -229,15 +254,17 @@ if __name__ == "__main__":
     EPOCH = 1000
 
     N_MEMORY_SIZE = 20000
-    N_SAMPLE_WINDOW = 50
-    N_BATCH = 4
+    #N_SAMPLE_WINDOW = 50
+    N_BATCH = 1
     N_TOTAL_TIME_STEPS = int(EPOCH*N_MEMORY_SIZE/N_SAMPLE_WINDOW/N_BATCH)
 
     EPOCH_N_PERIOD = int(N_MEMORY_SIZE/N_SAMPLE_WINDOW/N_BATCH)
 
-    env = FireEnvironment(50, 50)
+    env = FireEnvironment(64, 64)
     dyn_autoencoder = DynamicAutoEncoder(grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
     memory = SingleTrajectoryBuffer(N_MEMORY_SIZE)
+
+    
     
     obs, state = env.reset()
 
@@ -261,8 +288,8 @@ if __name__ == "__main__":
 
 
         memory.add(obs, state)
-        if i > N_SAMPLE_WINDOW:
-            loss_val, loss_val_cross, loss_val_ent =  dyn_autoencoder.update(memory)
+        if i > 2000:
+            loss_val, loss_val_cross, loss_val_ent, O_np_val =  dyn_autoencoder.update(memory)
             list_loss.append(loss_val)
             list_cross_entropy_loss.append(loss_val_cross)
             list_entropy_loss.append(loss_val_ent)
@@ -270,18 +297,30 @@ if __name__ == "__main__":
             if i%EPOCH_N_PERIOD == 0:
                 avg_loss = np.mean(np.array(list_loss))
                 list_loss = []
-                writer.add_scalar('/dynautoenc/loss', avg_loss, i)
+                writer.add_scalar('dynautoenc/loss', avg_loss, i)
 
                 avg_loss_cross = np.mean(np.array(list_cross_entropy_loss))
                 list_cross_entropy_loss = []
-                writer.add_scalar('/dynautoenc/crossentropy', avg_loss_cross, i)
+                writer.add_scalar('dynautoenc/crossentropy', avg_loss_cross, i)
 
                 avg_loss_entropy = np.mean(np.array(list_entropy_loss))
                 list_entropy_loss = []
-                writer.add_scalar('/dynautoenc/shannonentropy', avg_loss_entropy, i)
+                writer.add_scalar('dynautoenc/shannonentropy', avg_loss_entropy, i)
+
+                writer.add_scalar('obs_state0/o00', O_np_val[0][0], i)
+                writer.add_scalar('obs_state1/o01', O_np_val[0][1], i)
+                writer.add_scalar('obs_state2/o02', O_np_val[0][2], i)
+                writer.add_scalar('obs_state0/o10', O_np_val[1][0], i)
+                writer.add_scalar('obs_state1/o11', O_np_val[1][1], i)
+                writer.add_scalar('obs_state2/o12', O_np_val[1][2], i)
+                writer.add_scalar('obs_state0/o20', O_np_val[2][0], i)
+                writer.add_scalar('obs_state1/o21', O_np_val[2][1], i)
+                writer.add_scalar('obs_state2/o22', O_np_val[2][2], i)
 
                 print('losses at iteration: %d, losses: total %.3f, cross %.3f, shannon %.3f' % (i, avg_loss, avg_loss_cross, avg_loss_entropy))
                 print('memory size at iteration: %d, size: %d' % (i, len(memory.obs_memory)))
 
         if i%int(EPOCH_N_PERIOD*10)==0:
-            dyn_autoencoder.save_the_model(i)
+            #dyn_autoencoder.save_the_model(i)
+            print('ok')
+    

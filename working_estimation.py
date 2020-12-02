@@ -226,7 +226,7 @@ if __name__ == "__main__":
     from torch.utils.tensorboard import SummaryWriter
     writer = SummaryWriter()
 
-    EPOCH = 400
+    EPOCH = 1000
 
     N_MEMORY_SIZE = 20000
     N_SAMPLE_WINDOW = 50
@@ -267,7 +267,7 @@ if __name__ == "__main__":
             list_cross_entropy_loss.append(loss_val_cross)
             list_entropy_loss.append(loss_val_ent)
 
-            if i%100 == 0:
+            if i%EPOCH_N_PERIOD == 0:
                 avg_loss = np.mean(np.array(list_loss))
                 list_loss = []
                 writer.add_scalar('/dynautoenc/loss', avg_loss, i)
@@ -281,7 +281,7 @@ if __name__ == "__main__":
                 writer.add_scalar('/dynautoenc/shannonentropy', avg_loss_entropy, i)
 
                 print('losses at iteration: %d, losses: total %.3f, cross %.3f, shannon %.3f' % (i, avg_loss, avg_loss_cross, avg_loss_entropy))
-                print('memory size at episode: %d, size: %d' % (i, len(memory.memory)))
+                print('memory size at iteration: %d, size: %d' % (i, len(memory.obs_memory)))
 
-        if i%EPOCH_N_PERIOD==0:
+        if i%int(EPOCH_N_PERIOD*10)==0:
             dyn_autoencoder.save_the_model(i)

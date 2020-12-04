@@ -44,10 +44,6 @@ def use_the_model(n_iteration):
 
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
 
-    #video_writer0 = cv2.VideoWriter('use_the_model0.avi', fourcc, 10, (800, 400))
-    #video_writer1 = cv2.VideoWriter('use_the_model1.avi', fourcc, 10, (1200, 400))
-
-
     # Environment
     env = FireEnvironment(64, 64)
 
@@ -60,7 +56,7 @@ def use_the_model(n_iteration):
     ########################################
     obs, state = env.reset()
 
-    for i in tqdm.tqdm(range(1000)):
+    for i in tqdm.tqdm(range(5000)):
 
         act = random.randrange(len(ACTION_SET))
         obs, state = env.step(ACTION_SET[act])
@@ -73,15 +69,6 @@ def use_the_model(n_iteration):
         img_agent = dyn_autoencoder.output_image(state_est_grid)
         render('env', img_env, 10)
         render('est', img_agent, 10)
-        #print(img_env.shape)
-        #print(img_agent.shape)
-
-        video_writer0.write(img_env)
-        video_writer1.write(img_agent)
-
-    video_writer0.release()
-    video_writer1.release()
-
 
 
 

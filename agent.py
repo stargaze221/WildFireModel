@@ -131,8 +131,9 @@ class DynamicAutoEncoder:
         print('Model Saved')
 
 
-    def load_the_model(self, f_path):
-        self.nn_model.load_state_dict(torch.load(f_path))
+    def load_the_model(self, iteration):
+        f_path = './save/dynautoenc/dynautoenc_network_param_' +  str(iteration) + '_model.pth'
+        self.model.load_state_dict(torch.load(f_path))
         print('Model Loaded')
 
 
@@ -168,9 +169,8 @@ class DynamicAutoEncoder:
         pred_state_est = F.softmax(pred_state_est, 1)
         pred_state_est = pred_state_est.permute(2, 3, 1, 0).contiguous()
         self.u_k = pred_state_est.detach()
-        #print(torch.mean(pred_state_est), torch.max(pred_state_est), torch.min(pred_state_est))
-
-        return pred_state_est # pred_state_est or state_est_grid
+        
+        return state_est_grid
     
     def output_image(self, state_est_grid, size=(1200,400)):
         img = state_est_grid.data.cpu().numpy().squeeze()
@@ -262,9 +262,9 @@ class DynamicAutoEncoder:
 
 
 
-def render (window_name, image):
+def render (window_name, image, wait_time):
     cv2.imshow(window_name, image)
-    cv2.waitKey(1)
+    cv2.waitKey(wait_time)
 
 
 

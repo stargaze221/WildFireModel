@@ -137,7 +137,7 @@ class DynamicAutoEncoder:
         print('Model Loaded')
 
 
-    def step(self, obs):
+    def step(self, obs, mask):
         self.model.eval()
 
         ### Likelihood ###
@@ -150,8 +150,12 @@ class DynamicAutoEncoder:
         Bu = b*self.u_k # Size : w x h x n_state x 1
         bu =  torch.sum(Bu, 2).unsqueeze(-1)
         Bu_over_bu = Bu / bu # Size : w x h x n_state x 1
-        state_est_grid = Bu_over_bu
+        Bu_over_bu[Bu_over_bu != Bu_over_bu] = 0 
 
+        ### Masking ###
+        mask = mask.unsqueeze(-1).unsqueeze(-1)
+        state_est_grid = self.u_k*(1-mask)
+        state_est_grid = state_est_grid + Bu_over_bu*mask
 
         ### Encoding the Likelihood ###
         obs = obs.unsqueeze(-1).detach()
@@ -169,7 +173,7 @@ class DynamicAutoEncoder:
         pred_state_est = F.softmax(pred_state_est, 1)
         pred_state_est = pred_state_est.permute(2, 3, 1, 0).contiguous()
         self.u_k = pred_state_est.detach()
-        
+
         return state_est_grid
     
     def output_image(self, state_est_grid, size=(1200,400)):
@@ -192,9 +196,10 @@ class DynamicAutoEncoder:
     def update(self, memory, n_batch, n_window):
         self.model.train()
 
-        batch_obs_stream, batch_state_stream = memory.sample(n_batch, n_window)
+        batch_obs_stream, batch_state_stream, batch_mask_stream = memory.sample(n_batch, n_window)
         batch_pred_obs_stream = []
         batch_tgt_obs_stream = []
+        batch_tgt_mask_stream = []
 
         O = F.softmax(self.model.W_obs_param,0)
         O_np_val = O.data.cpu().numpy()
@@ -223,15 +228,25 @@ class DynamicAutoEncoder:
             pred_obs_stream = torch.matmul(O_bat, pred_state_est_stream)
             batch_pred_obs_stream.append(pred_obs_stream)
 
+            ### Mask ###
+            mask_stream = torch.stack(batch_mask_stream[i])
+            batch_tgt_mask_stream.append(mask_stream.unsqueeze(-1).unsqueeze(-1))
+
         batch_pred_obs_stream = torch.stack(batch_pred_obs_stream)
         batch_tgt_obs_stream = torch.stack(batch_tgt_obs_stream)
+        batch_tgt_mask_stream = torch.stack(batch_tgt_mask_stream)
 
         #### Translate one step the target for calculating loss in prediction
+        tgt_mask_obs = batch_tgt_mask_stream[:, 1:, :, :, :]
         tgt_grid_obs = batch_tgt_obs_stream[:, 1:, :, :, :]
         pred_grid_obs = batch_pred_obs_stream[:, :-1, :, :, :]
 
+        mask_tgt_grid_obs = tgt_grid_obs*tgt_mask_obs
+        mask_pred_grid_obs = pred_grid_obs*tgt_mask_obs
+        
+
         #### Cross Entropy Loss ###
-        loss1 = torch.mean(-(tgt_grid_obs*torch.log(pred_grid_obs + EPS)+(1-tgt_grid_obs)*torch.log(1-pred_grid_obs + EPS)))
+        loss1 = torch.sum(-(mask_tgt_grid_obs*torch.log(mask_pred_grid_obs + EPS)+(1-mask_tgt_grid_obs)*torch.log(1-mask_pred_grid_obs + EPS)))/torch.sum(tgt_mask_obs)
 
         ### Shannon entropy loss ###
         p = pred_grid_obs
@@ -239,11 +254,6 @@ class DynamicAutoEncoder:
         loss2 = -torch.mean(p*log_p)
 
         loss = loss1 #+ loss2
-
-        ### loss3 ###
-        #loss3 = torch.mean(self.model.W_obs_param**2)
-
-        #loss = loss + 0.001*loss3
 
         ### Update Model ###
         self.optimizer.zero_grad()
@@ -267,9 +277,97 @@ def render (window_name, image, wait_time):
     cv2.waitKey(wait_time)
 
 
+def model_based_recursive_estimation():
+    from environment import FireEnvironment
+
+    env = FireEnvironment(50, 50)
+    agent = POMDPAgent(grid_size = (env.map_width, env.map_height), n_obs=3, n_state=3)
+    
+    obs, state = env.reset()
+
+    for i in range(5000):
+
+        img_env   = env.output_image()
+        img_agent = agent.output_image()
+
+        render('env', img_env, 10)
+        render('est', img_agent, 10)
+
+        act = random.randrange(len(ACTION_SET))
+        obs, state = env.step(ACTION_SET[act])
+
+        state_est = agent.Bayesian_update(obs)
 
 
 
+
+
+class Vehicle:
+    def __init__(self, n_vehicle = 3, n_time_windows=500, grid_size=(64, 64)):
+
+        self.grid_size = grid_size
+        self.n_vehicle = n_vehicle
+        self.n_time_windows = n_time_windows
+        self.position_state = np.zeros(2)
+
+
+    def full_mask(self):
+        mask = np.ones(self.grid_size)
+
+        dim = (400, 400)
+        img_resized = cv2.resize(mask, dim, interpolation = cv2.INTER_AREA)
+        mask = torch.FloatTensor(mask).to(DEVICE)
+
+        return mask, img_resized
+
+
+    def plan_a_trajectory(self, obs_grid_map=None, stat_est_map=None):
+        '''
+        For now, I generate a uniformly randon explorative trajectory
+        '''
+
+        '''
+
+        MASK = torch.zeros(self.n_vehicle, self.grid_size[0], self.grid_size[1])
+
+        U_delta_i = torch.randint(low=-1, high=1, size=(self.n_vehicle, self.n_time_windows))
+        U_delta_j = torch.randint(low=-1, high=1, size=(self.n_vehicle, self.n_time_windows))
+
+        I_cum_i = torch.clamp(torch.cumsum(U_delta_i, 1), 0, self.grid_size[0])
+        J_cum_j = torch.clamp(torch.cumsum(U_delta_j, 1), 0, self.grid_size[1])
+
+        IJ_cum_ij = torch.stack([I_cum_i, J_cum_j], 1)
+
+        for k in range(self.n_vehicle):
+            i_indice = IJ_cum_ij[k][0]
+            j_indice = IJ_cum_ij[k][1]
+            MASK[k][i_indice][j_indice] = 1
+
+        mask = torch.clamp(torch.sum(MASK, 0), 0, 1)
+
+        print(torch.sum(MASK))
+        '''
+
+
+
+        ACTION_SET = [[-1, 1],[0, 1],[1, 1],[-1, 0],[1, 0],[-1,-1],[0,-1],[1,-1]]
+
+        mask = np.zeros(self.grid_size)
+
+        for t in range(self.n_time_windows):
+            act = random.randrange(len(ACTION_SET))
+            self.position_state += np.array(ACTION_SET[act])
+            self.position_state = np.clip(self.position_state, 0, self.grid_size[0]-1)
+
+            pos_i = int(self.position_state[0])
+            pos_j = int(self.position_state[1])
+            mask[pos_i][pos_j] = 1
+
+        dim = (400, 400)
+        img_resized = cv2.resize(mask, dim, interpolation = cv2.INTER_AREA)
+        mask = torch.FloatTensor(mask).to(DEVICE)
+
+        return mask, img_resized
 
 
 
@@ -280,25 +378,22 @@ def render (window_name, image, wait_time):
 
 
 if __name__ == "__main__":
-    from environment import FireEnvironment
+    import cv2
+    size = (400,400)
 
-    env = FireEnvironment(50, 50)
-    agent = POMDPAgent(grid_size = (env.map_width, env.map_height), n_obs=3, n_state=3)
+    out = cv2.VideoWriter('project.avi',cv2.VideoWriter_fourcc(*'DIVX'), 15, size)
+ 
+       
+    vehicle = Vehicle()
+    for i in range(100):
+        visit_mask, img_resized = vehicle.plan_a_trajectory()
+        #print(img_resized.shape)
+        frame = img_resized #cv2.cvtColor(img_resized, cv2.COLOR_GRAY2BGR)
+        out.write(frame)
+        render('mask', img_resized, 1) 
+
+    out.release()
     
-    obs, state = env.reset()
-
-    for i in range(5000):
-        print(i)
-        img_env   = env.output_image()
-        img_agent = agent.output_image()
-
-        render('env', img_env)
-        render('est', img_agent)
-
-        act = random.randrange(len(ACTION_SET))
-        obs, state = env.step(ACTION_SET[act])
-
-        state_est = agent.Bayesian_update(obs)
 
     
 

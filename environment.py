@@ -25,12 +25,6 @@ class FireEnvironment:
         self.map_height = h
         self.N_state = 3
 
-        ### Drone State ###
-        self.drone_pos = [25,25]
-        self.drone_obs_windows = torch.zeros((3,3,3))
-        self.drone_state_windows = torch.zeros((3,3,3))
-
-
         ### State Variable ###
         self.init_prob_dist = torch.zeros(self.N_state, self.map_width, self.map_height).to(DEVICE)
         self.init_prob_dist[0][:][:] = 0.99
@@ -60,6 +54,7 @@ class FireEnvironment:
 
         self.realization_state = self.sample_gridmap_from_fire_dist(self.init_prob_dist)
         self.observed_state = self.observe()
+        self.masked_observation = torch.zeros_like(self.observed_state)
 
 
     def sample_gridmap_from_fire_dist(self, fire_dist):
@@ -77,24 +72,26 @@ class FireEnvironment:
 
     def render(self):
         img_state = self.realization_state.data.permute(1,2,0).cpu().numpy().squeeze()
-        
         img_obs = self.observed_state.data.cpu().numpy().squeeze()
+        img_masked_obs = self.masked_observation.data.cpu().numpy().squeeze()
         
         blank = np.zeros((self.map_height, int(self.map_width/20), 3))
-        img = np.concatenate((img_state, blank, img_obs), axis=1)
+        img = np.concatenate((img_state, blank, img_obs, blank, img_masked_obs), axis=1)
         
         scale = 2
-        dim = (int(self.map_width*(2.3))*scale, self.map_height*scale)
+        dim = (int(self.map_width*(3.3))*scale, self.map_height*scale)
         img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
         cv2.imshow("image", img_resized)
-        cv2.waitKey(50)
+        cv2.waitKey(1)
 
-    def output_image(self, size=(800,400)):
+    def output_image(self, size=(1200,400)):
         img_state = self.realization_state.data.permute(1,2,0).cpu().numpy().squeeze()
         img_obs = self.observed_state.data.cpu().numpy().squeeze()
+        img_masked_obs = self.masked_observation.data.cpu().numpy().squeeze()
+        
         blank = np.zeros((self.map_height, int(self.map_width/20), 3))
-        img = np.concatenate((img_state, blank, img_obs), axis=1)
-
+        img = np.concatenate((img_state, blank, img_obs, blank, img_masked_obs), axis=1)
+        
         dim = size
         img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
 
@@ -105,9 +102,10 @@ class FireEnvironment:
         ### Resample using the initial distribution ###
         self.realization_state = self.sample_gridmap_from_fire_dist(self.init_prob_dist)
         self.observed_state = self.observe()
-        return self.observed_state, self.realization_state
+        self.masked_observation = torch.zeros_like(self.observed_state)
+        return self.masked_observation, self.observed_state, self.realization_state
 
-    def step(self, move):
+    def step(self, obs_mask=None):
         state = torch.unsqueeze(self.realization_state, 0).to(DEVICE)
         prob_dist = self.transition(state).squeeze()
         prob_dist = prob_dist / torch.sum(prob_dist, 0)
@@ -115,10 +113,11 @@ class FireEnvironment:
         self.realization_state = self.sample_gridmap_from_fire_dist(prob_to_sample)
         self.observed_state = self.observe()
 
-        self.drone_pos[0] = min(max(self.drone_pos[0] + move[0], 1), self.map_width-2)
-        self.drone_pos[1] = min(max(self.drone_pos[1] + move[1], 1), self.map_height-2)
+        ## Maks observation 
+        #obs_mask = torch.FloatTensor(obs_mask).unsqueeze(-1).to(DEVICE)
+        self.masked_observation = obs_mask.unsqueeze(-1) * self.observed_state
 
-        return self.observed_state, self.realization_state
+        return self.masked_observation, self.observed_state, self.realization_state
 
     def observe(self):
         prob_to_sample = torch.unsqueeze(self.realization_state.clone().detach().permute(1, 2, 0).reshape(-1, 3),2)
@@ -131,33 +130,20 @@ class FireEnvironment:
         onehot_obs_map = torch.FloatTensor(self.map_width, self.map_height, 3).to(DEVICE)
         onehot_obs_map.zero_()
         onehot_obs_map.scatter_(2, observed_map, 1)
-
-        x_drone = self.drone_pos[0]
-        y_drone = self.drone_pos[1]
-
-        state_map = self.realization_state.clone().detach().permute(1, 2, 0)
-
-        '''
-        for i in range(-1,2):
-            for j in range(-1,2):
-                self.drone_obs_windows[i][j]= onehot_obs_map[x_drone+i][y_drone+j]
-                self.drone_state_windows[i][j]= state_map[x_drone+i][y_drone+j]
-        '''
-
+        
         return onehot_obs_map
         
 
 
 if __name__ == "__main__":
+    from agent import Vehicle
     env = FireEnvironment(100, 100)
-    obs, state = env.reset()
-    #print(onehot_grid_map)
+    mask_obs, obs, state = env.reset()
+    
     env.render()
-    #for i in range(10000):
+    vehicle = Vehicle(2500, (100,100))
 
     while True:
-        act = random.randrange(N_ACTION)
-        obs, state = env.step(ACTION_SET[act])
-        #print(onehot_grid_map)
+        MAP_VISIT_MASK, img_resized = vehicle.plan_a_trajectory()
+        mask_obs, obs, state = env.step(MAP_VISIT_MASK)
         env.render()
-        #break

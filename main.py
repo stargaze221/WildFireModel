@@ -18,6 +18,8 @@ from memory import SingleTrajectoryBuffer
 import tqdm, random
 from params import ACTION_SET
 
+from agent import Vehicle
+
 
 
 LR_ESTIMATOR = 0.001
@@ -37,46 +39,12 @@ N_LOGGING_PERIOD = 200
 N_SAVING_PERIOD = 5000
 N_RENDER_PERIOD = 10
 
-
-def use_the_model(n_iteration):
-
-    size = (200, 60)
-
-    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-
+def train(fullcover=False):
     # Environment
     env = FireEnvironment(64, 64)
 
-    # Load the model
-    dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
-    dyn_autoencoder.load_the_model(n_iteration)
-
-    ########################################
-    ### Interacting with the Environment ###
-    ########################################
-    obs, state = env.reset()
-
-    for i in tqdm.tqdm(range(5000)):
-
-        act = random.randrange(len(ACTION_SET))
-        obs, state = env.step(ACTION_SET[act])
-
-        ### Run the Estimator ###
-        state_est_grid = dyn_autoencoder.step(obs)
-
-        ### Render the Env. and the Est. ###
-        img_env   = env.output_image()
-        img_agent = dyn_autoencoder.output_image(state_est_grid)
-        render('env', img_env, 10)
-        render('est', img_agent, 10)
-
-
-
-
-
-def train():
-    # Environment
-    env = FireEnvironment(64, 64)
+    # Vehicle to generate observation mask
+    vehicle = Vehicle(n_time_windows=2048, grid_size=(64,64))
 
     # Trainer and Estimator
     dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
@@ -92,7 +60,7 @@ def train():
     ########################################
     ### Interacting with the Environment ###
     ########################################
-    obs, state = env.reset()
+    mask_obs, obs, state = env.reset()
 
     ### Loss Monitors ###
     list_loss = []
@@ -101,27 +69,40 @@ def train():
 
     ### Filling the Data Buffer ###
     for i in tqdm.tqdm(range(N_TRAIN_WAIT)):
-        memory.add(obs, state)
-        act = random.randrange(len(ACTION_SET))
-        obs, state = env.step(ACTION_SET[act])
+
+        if fullcover:
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory()
+        else:
+            map_visit_mask, img_resized = vehicle.full_mask()
+
+        mask_obs, obs, state = env.step(map_visit_mask)
+        memory.add(mask_obs, state, map_visit_mask)
+        
 
 
     for i in tqdm.tqdm(range(N_TOTAL_TIME_STEPS)):
 
         ### Collect Data from the Env. ###
-        memory.add(obs, state)
-        act = random.randrange(len(ACTION_SET))
-        obs, state = env.step(ACTION_SET[act])
+        if fullcover:
+            map_visit_mask, img_resized = vehicle.full_mask()
+        else:
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory()
+            
+        
+        mask_obs, obs, state = env.step(map_visit_mask)
+        memory.add(mask_obs, state, map_visit_mask)
 
         ### Run the Estimator ###
-        state_est_grid = dyn_autoencoder.step(obs)
+        state_est_grid = dyn_autoencoder.step(mask_obs, map_visit_mask)
 
         ### Render the Env. and the Est. ###
         if i % N_RENDER_PERIOD == 0:
             img_env   = env.output_image()
-            img_agent = dyn_autoencoder.output_image(state_est_grid)
-            render('env', img_env)
-            render('est', img_agent)
+            img_state_est_grid = dyn_autoencoder.output_image(state_est_grid)
+            
+            render('env', img_env, 1)
+            render('img_state_est_grid', img_state_est_grid, 1)
+            
 
 
         ### Training ###
@@ -158,7 +139,94 @@ def train():
 
         if (i+1)%N_SAVING_PERIOD==0:
             dyn_autoencoder.save_the_model(i)
+
+        #break
+
+
+
+
+def use_the_model(n_iteration, fullcover=False):
+
+    writer = cv2.VideoWriter("output.avi",cv2.VideoWriter_fourcc(*"MJPG"), 30,(1200,800))
+
+    # Environment
+    env = FireEnvironment(64, 64)
+
+    # Vehicle to generate observation mask
+    vehicle = Vehicle(n_time_windows=2048, grid_size=(64,64))
+
+    # Load the model
+    dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
+    dyn_autoencoder.load_the_model(n_iteration)
+
+    ########################################
+    ### Interacting with the Environment ###
+    ########################################
+    mask_obs, obs, state = env.reset()
+
+    for i in tqdm.tqdm(range(1000)):
+        ### Collect Data from the Env. ###
+        if fullcover:
+            map_visit_mask, img_resized = vehicle.full_mask()
+        else:
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory()
+
+        mask_obs, obs, state = env.step(map_visit_mask)
+
+        ### Run the Estimator ###
+        state_est_grid = dyn_autoencoder.step(mask_obs, map_visit_mask)
+
+        ### Render the Env. and the Est. ###
+        img_env   = env.output_image()
+        img_state_est_grid = dyn_autoencoder.output_image(state_est_grid)
+        
+        render('env', img_env, 10)
+        render('img_state_est_grid', img_state_est_grid, 10)
+
+        ### Save the video
+        img_env_uint8 = (img_env*255).astype('uint8')
+        img_state_est_grid_uint8 = (img_state_est_grid*255).astype('uint8')
+        backtorgb = cv2.cvtColor(img_state_est_grid_uint8,cv2.COLOR_GRAY2RGB)
+
+        img = np.concatenate((img_env_uint8, backtorgb), axis=0)
+
+        #print(img.shape)
+        
+        
+        writer.write(img)
+
+        '''
+        print(img_env_uint8.shape)
+
+
+        ##########################
+        w, h = self.grid_size
+        blank = np.zeros((h, int(w/20)))
+        #img = np.concatenate((img_state0, blank, np.clip(img_state1 - img_state0, 0, 1), blank, img_state2), axis=1)
+        img = np.concatenate((img_state0, blank, img_state1, blank, img_state2), axis=1)
+        dim = size
+    
+        img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+
+
+        gray = np.random.randint(0, 255, (480,640,1)).astype('uint8')
+
+        backtorgb = cv2.cvtColor(gray,cv2.COLOR_GRAY2RGB)
+        writer.write(backtorgb)
+        ##########################
+        '''
+    
+    writer.release()
+
     
 if __name__ == "__main__":
 
     use_the_model(49999)
+
+    '''
+
+    for i in range(5):
+        train(False)
+    '''
+
+    

@@ -306,9 +306,13 @@ class Vehicle:
     def __init__(self, n_vehicle = 3, n_time_windows=500, grid_size=(64, 64)):
 
         self.grid_size = grid_size
-        self.n_vehicle = n_vehicle
+        self.n_vehicle = n_vehicle # This will be used later.
+
         self.n_time_windows = n_time_windows
-        self.position_state = np.zeros(2)
+        self.position_state = np.zeros(2) #torch.zeros(2,1)
+
+        self.action_set = [[0, 1],[-1, 0],[1, 0],[0,-1]]
+        self.n_action = len(self.action_set)
 
 
     def full_mask(self):
@@ -321,37 +325,9 @@ class Vehicle:
         return mask, img_resized
 
 
-    def plan_a_trajectory(self, obs_grid_map=None, stat_est_map=None):
-        '''
-        For now, I generate a uniformly randon explorative trajectory
-        '''
+    def generate_a_random_trajectory(self, stat_est_map=None):
 
-        '''
-
-        MASK = torch.zeros(self.n_vehicle, self.grid_size[0], self.grid_size[1])
-
-        U_delta_i = torch.randint(low=-1, high=1, size=(self.n_vehicle, self.n_time_windows))
-        U_delta_j = torch.randint(low=-1, high=1, size=(self.n_vehicle, self.n_time_windows))
-
-        I_cum_i = torch.clamp(torch.cumsum(U_delta_i, 1), 0, self.grid_size[0])
-        J_cum_j = torch.clamp(torch.cumsum(U_delta_j, 1), 0, self.grid_size[1])
-
-        IJ_cum_ij = torch.stack([I_cum_i, J_cum_j], 1)
-
-        for k in range(self.n_vehicle):
-            i_indice = IJ_cum_ij[k][0]
-            j_indice = IJ_cum_ij[k][1]
-            MASK[k][i_indice][j_indice] = 1
-
-        mask = torch.clamp(torch.sum(MASK, 0), 0, 1)
-
-        print(torch.sum(MASK))
-        '''
-
-
-
-        ACTION_SET = [[-1, 1],[0, 1],[1, 1],[-1, 0],[1, 0],[-1,-1],[0,-1],[1,-1]]
-
+        ACTION_SET = self.action_set
         mask = np.zeros(self.grid_size)
 
         for t in range(self.n_time_windows):
@@ -366,6 +342,71 @@ class Vehicle:
         dim = (400, 400)
         img_resized = cv2.resize(mask, dim, interpolation = cv2.INTER_AREA)
         mask = torch.FloatTensor(mask).to(DEVICE)
+
+        return mask, img_resized
+
+
+    def plan_a_trajectory(self, stat_est_map=None, n_sample = 100, omega = 1.0):
+
+        #u_basis = (torch.LongTensor(self.action_set).T).to(DEVICE).detach()
+        u_basis = torch.LongTensor([[1,0],[-1,0],[0,1],[0,-1]]).T.to(DEVICE).detach()
+        position_state = torch.LongTensor(self.position_state).unsqueeze(-1).to(DEVICE).detach()
+
+        ### Random Action Stream ###
+        action_samples = torch.randint(low=0, high=self.n_action, size=(n_sample, self.n_time_windows)).to(DEVICE).long().detach()
+        action_samples_onehot = torch.nn.functional.one_hot(action_samples, num_classes=self.n_action).unsqueeze(-1)
+        u_basis_repeat = u_basis.unsqueeze(0).unsqueeze(0)  
+        u_basis_repeat = u_basis_repeat.repeat(n_sample, self.n_time_windows, 1, 1)
+        del action_samples, u_basis
+
+        ### Integrate the Action Stream and Add it to the State ###
+        action_sum = torch.matmul(u_basis_repeat.float(), action_samples_onehot.float()).detach()
+        action_sum = torch.cumsum(action_sum, 1)
+        trajectories = position_state + action_sum
+        trajectories = torch.clamp(trajectories, 0, self.grid_size[0]-1)
+        trajectories = trajectories.permute(1,0,2,3).long().to(DEVICE) # n_time x n_sample x n_coord x 1
+        terminal_positions = trajectories[-1]
+
+        ### Cacaluate Visit Counter Map ###
+        i_indice_onehot = torch.nn.functional.one_hot(trajectories[:,:,0], num_classes=self.grid_size[0]).repeat(1, 1, self.grid_size[1], 1)
+        j_indice_onehot = torch.nn.functional.one_hot(trajectories[:,:,1], num_classes=self.grid_size[1]).repeat(1, 1, self.grid_size[0], 1).permute(0, 1, 3, 2)
+        positions_onehot = i_indice_onehot * j_indice_onehot
+        map_visted_binary = torch.clamp(torch.sum(positions_onehot, dim=0), 0, 1).float()
+        del trajectories, position_state, action_sum, i_indice_onehot, j_indice_onehot, positions_onehot
+
+        ### Calcualte the Reward to Maximize given Map Visted Counter and State Estimate ###
+        
+        # Greedy Reward
+        red_state_prob = stat_est_map[:,:,0].squeeze().unsqueeze(0).repeat(n_sample,1,1)
+        green_state_prob = stat_est_map[:,:,1].squeeze().unsqueeze(0).repeat(n_sample,1,1)
+        temp = red_state_prob*map_visted_binary + green_state_prob+map_visted_binary
+        reward_exploitation = torch.sum(temp, dim=(1,2))
+        del red_state_prob, green_state_prob
+
+        # Uncertainty Reward - Shannon entropy
+        p = stat_est_map.squeeze()
+        log_p = torch.log(p)
+        uncertainty_grid = -torch.mean(p*log_p, 2)
+        uncertainty_grid = uncertainty_grid.unsqueeze(0).repeat(n_sample,1,1)
+        temp = uncertainty_grid*map_visted_binary
+        reward_exploration =  torch.sum(temp, dim=(1,2))
+        del uncertainty_grid, stat_est_map, temp, p
+
+        rewards = (1-omega)*reward_exploitation + omega*reward_exploration ### Trade off
+        indice = torch.argmax(rewards)
+        max_val = rewards[indice]
+
+        ### Return the best one out of the random search ###
+        mask = map_visted_binary[indice].float().detach()
+        dim = (400, 400)
+        img_resized = cv2.resize(mask.cpu().data.numpy(), dim, interpolation = cv2.INTER_AREA)
+
+        ### Update the initial position for the next iteration ###
+        self.position_state = terminal_positions[indice].squeeze().cpu().data.numpy()
+
+        ### Delete Torch Tensors being Accumulated ###
+        del terminal_positions, rewards
+        torch.cuda.empty_cache()
 
         return mask, img_resized
 

@@ -123,10 +123,10 @@ class DynamicAutoEncoder:
 
         
 
-    def save_the_model(self, iteration):
+    def save_the_model(self, iteration, f_name):
         if not os.path.exists('./save/dynautoenc/'):
             os.makedirs('./save/dynautoenc/')
-        f_name = 'dynautoenc_network_param_' +  str(iteration) + '_model.pth'
+        f_name = 'dynautoenc_network_param_' +  str(iteration) + '_' + f_name + '_model.pth'
         torch.save(self.model.state_dict(), './save/dynautoenc/'+f_name)
         print('Model Saved')
 
@@ -392,7 +392,11 @@ class Vehicle:
         reward_exploration =  torch.sum(temp, dim=(1,2))
         del uncertainty_grid, stat_est_map, temp, p
 
-        rewards = (1-omega)*reward_exploitation + omega*reward_exploration ### Trade off
+        # Visiting Efficiency
+        temp = map_visted_binary
+        reward_efficiency = torch.sum(temp, dim=(1,2))
+
+        rewards = (1-omega)*reward_exploitation + omega*reward_exploration + 0.1*reward_efficiency ### Trade off
         indice = torch.argmax(rewards)
         max_val = rewards[indice]
 

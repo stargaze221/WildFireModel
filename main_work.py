@@ -29,7 +29,7 @@ SETTING = {}
 SETTING.update({'lr_optim_dynautoenc':LR_ESTIMATOR})
 SETTING.update({'betas_optim_dynautoenc':BETAS})
 
-N_TRAIN_WINDOW = 500
+N_TRAIN_WINDOW = 1000
 N_TRAIN_BATCH = 1
 N_TRAIN_WAIT = 1000
 N_TOTAL_TIME_STEPS = 50000
@@ -37,9 +37,12 @@ N_MEMORY_SIZE = 10000
 
 N_LOGGING_PERIOD = 200
 N_SAVING_PERIOD = 5000
-N_RENDER_PERIOD = 10
+N_RENDER_PERIOD = 1
 
-def train(fullcover=False):
+def train(fullcover, name, omega):
+
+    n_sample = 20
+
     # Environment
     env = FireEnvironment(64, 64)
 
@@ -73,7 +76,7 @@ def train(fullcover=False):
     for i in tqdm.tqdm(range(N_TRAIN_WAIT)):
 
         if fullcover:
-            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample=20, omega=0.9)
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, omega)
         else:
             map_visit_mask, img_resized = vehicle.full_mask()
 
@@ -88,7 +91,7 @@ def train(fullcover=False):
         if fullcover:
             map_visit_mask, img_resized = vehicle.full_mask()
         else:
-            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample=20, omega=0.9)
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, omega)
             
         
         mask_obs, obs, state = env.step(map_visit_mask)
@@ -140,7 +143,8 @@ def train(fullcover=False):
             print('memory size at iteration: %d, size: %d' % (i, len(memory.obs_memory)))
 
         if (i+1)%N_SAVING_PERIOD==0:
-            dyn_autoencoder.save_the_model(i)
+            f_name = name+str(omega)
+            dyn_autoencoder.save_the_model(i, f_name)
 
 
 
@@ -236,11 +240,18 @@ def use_the_model_with_a_planner(n_iteration):
     
 if __name__ == "__main__":
 
+    import names
+    
+    
+    last_name = names.get_last_name()
+
     #use_the_model_with_a_planner(44999)
 
     #use_the_model(44999)
 
     for i in range(5):
-        train(False)
+        last_name = names.get_last_name()
+        omega = 1.0
+        train(False, last_name, omega)
 
     

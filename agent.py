@@ -131,8 +131,8 @@ class DynamicAutoEncoder:
         print('Model Saved')
 
 
-    def load_the_model(self, iteration):
-        f_path = './save/dynautoenc/dynautoenc_network_param_' +  str(iteration) + '_model.pth'
+    def load_the_model(self, name, omega, n_iteration):
+        f_path = './save/dynautoenc/dynautoenc_network_param_' +  str(n_iteration) + '_' + name + str(omega) + '_model.pth'
         self.model.load_state_dict(torch.load(f_path))
         print('Model Loaded')
 
@@ -377,9 +377,9 @@ class Vehicle:
         ### Calcualte the Reward to Maximize given Map Visted Counter and State Estimate ###
         
         # Greedy Reward
-        red_state_prob = stat_est_map[:,:,0].squeeze().unsqueeze(0).repeat(n_sample,1,1)
+        red_state_prob = stat_est_map[:,:,2].squeeze().unsqueeze(0).repeat(n_sample,1,1) #<--- this needs to be hard coded?
         green_state_prob = stat_est_map[:,:,1].squeeze().unsqueeze(0).repeat(n_sample,1,1)
-        temp = red_state_prob*map_visted_binary + green_state_prob+map_visted_binary
+        temp = red_state_prob*map_visted_binary #+ green_state_prob+map_visted_binary
         reward_exploitation = torch.sum(temp, dim=(1,2))
         del red_state_prob, green_state_prob
 

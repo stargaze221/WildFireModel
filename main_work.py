@@ -148,7 +148,7 @@ def train(fullcover, name, omega):
 
 
 
-def use_the_model(n_iteration, fullcover=False):
+def use_the_model(name, omega, n_iteration, fullcover=False):
 
     writer = cv2.VideoWriter("output.avi",cv2.VideoWriter_fourcc(*"MJPG"), 30,(1200,800))
 
@@ -156,11 +156,11 @@ def use_the_model(n_iteration, fullcover=False):
     env = FireEnvironment(64, 64)
 
     # Vehicle to generate observation mask
-    vehicle = Vehicle(n_time_windows=512, grid_size=(64,64))
+    vehicle = Vehicle(n_time_windows=1024, grid_size=(64,64))
 
     # Load the model
     dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
-    dyn_autoencoder.load_the_model(n_iteration)
+    dyn_autoencoder.load_the_model(name, omega, n_iteration)
 
     ########################################
     ### Interacting with the Environment ###
@@ -198,7 +198,9 @@ def use_the_model(n_iteration, fullcover=False):
     writer.release()
 
 
-def use_the_model_with_a_planner(n_iteration):
+def use_the_model_with_a_planner(name, omega, n_iteration):
+
+    writer = cv2.VideoWriter("output.avi",cv2.VideoWriter_fourcc(*"MJPG"), 30,(1200,800))
 
     # Environment
     env = FireEnvironment(64, 64)
@@ -208,7 +210,7 @@ def use_the_model_with_a_planner(n_iteration):
 
     # Load the model
     dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
-    dyn_autoencoder.load_the_model(n_iteration)
+    dyn_autoencoder.load_the_model(name, omega, n_iteration)
 
     ########################################
     ### Interacting with the Environment ###
@@ -233,6 +235,15 @@ def use_the_model_with_a_planner(n_iteration):
         render('env', img_env, 1)
         render('img_state_est_grid', img_state_est_grid, 1)
 
+        ### Save the video
+        img_env_uint8 = (img_env*255).astype('uint8')
+        img_state_est_grid_uint8 = (img_state_est_grid*255).astype('uint8')
+        backtorgb = cv2.cvtColor(img_state_est_grid_uint8,cv2.COLOR_GRAY2RGB)
+        img = np.concatenate((img_env_uint8, backtorgb), axis=0)        
+        writer.write(img)
+
+    writer.release()
+
     render('env', img_env, -1)
     render('img_state_est_grid', img_state_est_grid, -1)
 
@@ -240,12 +251,20 @@ def use_the_model_with_a_planner(n_iteration):
     
 if __name__ == "__main__":
 
+    name = "Cork"
+    omega = 1.0
+    n_iteration = 49999
+
+    use_the_model_with_a_planner(name, omega, n_iteration)
+
+    '''
+
     import names
     
     
     last_name = names.get_last_name()
 
-    #use_the_model_with_a_planner(44999)
+    
 
     #use_the_model(44999)
 
@@ -253,5 +272,6 @@ if __name__ == "__main__":
         last_name = names.get_last_name()
         omega = 1.0
         train(False, last_name, omega)
+    '''
 
     

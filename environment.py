@@ -117,7 +117,11 @@ class FireEnvironment:
         #obs_mask = torch.FloatTensor(obs_mask).unsqueeze(-1).to(DEVICE)
         self.masked_observation = obs_mask.unsqueeze(-1) * self.observed_state
 
-        return self.masked_observation, self.observed_state, self.realization_state
+        # Count the sum of visit to the red grid
+        area = self.map_width * self.map_height
+        reward = torch.sum(obs_mask.unsqueeze(-1) * self.realization_state[2])/area
+
+        return self.masked_observation, self.observed_state, self.realization_state, reward.item()
 
     def observe(self):
         prob_to_sample = torch.unsqueeze(self.realization_state.clone().detach().permute(1, 2, 0).reshape(-1, 3),2)
@@ -132,18 +136,3 @@ class FireEnvironment:
         onehot_obs_map.scatter_(2, observed_map, 1)
         
         return onehot_obs_map
-        
-
-
-if __name__ == "__main__":
-    from agent import Vehicle
-    env = FireEnvironment(100, 100)
-    mask_obs, obs, state = env.reset()
-    
-    env.render()
-    vehicle = Vehicle(2500, (100,100))
-
-    while True:
-        MAP_VISIT_MASK, img_resized = vehicle.plan_a_trajectory()
-        mask_obs, obs, state = env.step(MAP_VISIT_MASK)
-        env.render()

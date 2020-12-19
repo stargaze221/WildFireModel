@@ -20,6 +20,7 @@ from params import ACTION_SET
 
 from agent import Vehicle
 
+from dqn_agent import Agent as DQN_Agent
 
 
 LR_ESTIMATOR = 0.001
@@ -55,6 +56,12 @@ def train(fullcover, name, omega):
     # Train Data Buffer
     memory = SingleTrajectoryBuffer(N_MEMORY_SIZE)
 
+    ### DQN agent
+    dqn_agent = DQN_Agent(state_size=16, action_size=4, replay_memory_size=10000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.002, update_rate=4, seed=0)
+
+
+
+
     # Train Iteration Logger
     from torch.utils.tensorboard import SummaryWriter
     writer = SummaryWriter()
@@ -73,32 +80,42 @@ def train(fullcover, name, omega):
     list_entropy_loss = []
 
     ### Filling the Data Buffer ###
-    for i in tqdm.tqdm(range(N_TRAIN_WAIT)):
-
+    for i in tqdm.tqdm(range(N_TRAIN_WAIT)):         
         if fullcover:
-            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, omega)
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)
         else:
             map_visit_mask, img_resized = vehicle.full_mask()
 
-        mask_obs, obs, state = env.step(map_visit_mask)
+        mask_obs, obs, state, reward = env.step(map_visit_mask)
         memory.add(mask_obs, state, map_visit_mask)
         
 
 
     for i in tqdm.tqdm(range(N_TOTAL_TIME_STEPS)):
 
+        # determine epsilon-greedy action from current sate
+        h_k = dyn_autoencoder.h_k.squeeze().data.cpu().numpy()
+        epsilon = 0.1
+        action = dqn_agent.act(h_k, epsilon)    
+
         ### Collect Data from the Env. ###
         if fullcover:
             map_visit_mask, img_resized = vehicle.full_mask()
         else:
-            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, omega)
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)
             
         
-        mask_obs, obs, state = env.step(map_visit_mask)
+        mask_obs, obs, state, reward = env.step(map_visit_mask)
         memory.add(mask_obs, state, map_visit_mask)
 
         ### Run the Estimator ###
         state_est_grid = dyn_autoencoder.step(mask_obs, map_visit_mask)
+        h_kp1 = dyn_autoencoder.h_k.squeeze().data.cpu().numpy()
+
+        #### Update the reinforcement learning agent ###
+        dqn_agent.step(h_k, action, reward, h_kp1, done=False)
+
+
 
         ### Render the Env. and the Est. ###
         if i % N_RENDER_PERIOD == 0:
@@ -176,7 +193,7 @@ def use_the_model(name, omega, n_iteration, fullcover=False):
         else:
             map_visit_mask, img_resized = vehicle.generate_a_random_trajectory(state_est_grid)
 
-        mask_obs, obs, state = env.step(map_visit_mask)
+        mask_obs, obs, state, reward = env.step(map_visit_mask)
 
         ### Run the Estimator ###
         state_est_grid = dyn_autoencoder.step(mask_obs, map_visit_mask)
@@ -223,7 +240,7 @@ def use_the_model_with_a_planner(name, omega, n_iteration):
         ### Collect Data from the Env. ###
         #map_visit_mask, img_resized = vehicle.generate_a_random_trajectory(state_est_grid)
         map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample=100, omega=0.0)
-        mask_obs, obs, state = env.step(map_visit_mask)
+        mask_obs, obs, state, reward = env.step(map_visit_mask)
 
         ### Run the Estimator ###
         state_est_grid = dyn_autoencoder.step(mask_obs, map_visit_mask)

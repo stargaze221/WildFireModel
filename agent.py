@@ -305,9 +305,6 @@ def model_based_recursive_estimation():
         state_est = agent.Bayesian_update(obs)
 
 
-
-
-
 class Vehicle:
     def __init__(self, n_vehicle = 3, n_time_windows=500, grid_size=(64, 64)):
 
@@ -352,7 +349,7 @@ class Vehicle:
         return mask, img_resized
 
 
-    def plan_a_trajectory(self, stat_est_map=None, n_sample = 100, omega = 1.0):
+    def plan_a_trajectory(self, stat_est_map, n_sample, action_param):
 
         #u_basis = (torch.LongTensor(self.action_set).T).to(DEVICE).detach()
         u_basis = torch.LongTensor([[1,0],[-1,0],[0,1],[0,-1]]).T.to(DEVICE).detach()
@@ -381,28 +378,40 @@ class Vehicle:
         del trajectories, position_state, action_sum, i_indice_onehot, j_indice_onehot, positions_onehot
 
         ### Calcualte the Reward to Maximize given Map Visted Counter and State Estimate ###
-        
-        # Greedy Reward
-        red_state_prob = stat_est_map[:,:,2].squeeze().unsqueeze(0).repeat(n_sample,1,1) #<--- this needs to be hard coded?
-        green_state_prob = stat_est_map[:,:,1].squeeze().unsqueeze(0).repeat(n_sample,1,1)
-        temp = red_state_prob*map_visted_binary #+ green_state_prob+map_visted_binary
-        reward_exploitation = torch.sum(temp, dim=(1,2))
-        del red_state_prob, green_state_prob
 
-        # Uncertainty Reward - Shannon entropy
-        p = stat_est_map.squeeze()
-        log_p = torch.log(p)
-        uncertainty_grid = -torch.mean(p*log_p, 2)
-        uncertainty_grid = uncertainty_grid.unsqueeze(0).repeat(n_sample,1,1)
-        temp = uncertainty_grid*map_visted_binary
-        reward_exploration =  torch.sum(temp, dim=(1,2))
-        del uncertainty_grid, stat_est_map, temp, p
+        if action_param == 0:
+            '''
+            Reward for visiting state estimate of 0 grid
+            '''
+            state0_prob = stat_est_map[:,:,0].squeeze().unsqueeze(0).repeat(n_sample,1,1)
+            rewards = state0_prob*map_visted_binary
 
-        # Visiting Efficiency
-        temp = map_visted_binary
-        reward_efficiency = torch.sum(temp, dim=(1,2))
+        elif action_param == 1:
+            '''
+            Reward for visiting state estimate of 1 grid
+            '''
+            state1_prob = stat_est_map[:,:,1].squeeze().unsqueeze(0).repeat(n_sample,1,1)
+            rewards = state1_prob*map_visted_binary
 
-        rewards = (1-omega)*reward_exploitation + omega*reward_exploration + 0.1*reward_efficiency ### Trade off
+        elif action_param == 2:
+            '''
+            Reward for visiting state estimate of 2 grid
+            '''
+            state2_prob = stat_est_map[:,:,2].squeeze().unsqueeze(0).repeat(n_sample,1,1)
+            rewards = state2_prob*map_visted_binary
+
+        else:
+            '''
+            Uncertain grid visit reward
+            '''
+            # Uncertainty Reward - Shannon entropy
+            p = stat_est_map.squeeze()
+            log_p = torch.log(p)
+            uncertainty_grid = -torch.mean(p*log_p, 2)
+            uncertainty_grid = uncertainty_grid.unsqueeze(0).repeat(n_sample,1,1)
+            rewards = uncertainty_grid*map_visted_binary
+
+        rewards = torch.sum(rewards, dim=(1,2))
         indice = torch.argmax(rewards)
         max_val = rewards[indice]
 

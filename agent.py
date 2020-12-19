@@ -248,12 +248,18 @@ class DynamicAutoEncoder:
         #### Cross Entropy Loss ###
         loss1 = torch.sum(-(mask_tgt_grid_obs*torch.log(mask_pred_grid_obs + EPS)+(1-mask_tgt_grid_obs)*torch.log(1-mask_pred_grid_obs + EPS)))/torch.sum(tgt_mask_obs)
 
+        ### Ordering property loss ###
+        O = O[0][0]
+        loss3 = torch.sign(O[0][1] -  O[0][0]) + torch.sign(O[0][2] -  O[2][2])
+
         ### Shannon entropy loss ###
         p = pred_grid_obs
         log_p = torch.log(p)
         loss2 = -torch.mean(p*log_p)
 
-        loss = loss1 #+ loss2
+        loss = loss1 + 0.001*loss3
+
+        
 
         ### Update Model ###
         self.optimizer.zero_grad()

@@ -56,6 +56,9 @@ class FireEnvironment:
         self.observed_state = self.observe()
         self.masked_observation = torch.zeros_like(self.observed_state)
 
+        ### Previous mask for reward calculation ###
+        self.prev_state = torch.zeros_like(self.realization_state)
+
 
     def sample_gridmap_from_fire_dist(self, fire_dist):
         '''
@@ -117,9 +120,15 @@ class FireEnvironment:
         #obs_mask = torch.FloatTensor(obs_mask).unsqueeze(-1).to(DEVICE)
         self.masked_observation = obs_mask.unsqueeze(-1) * self.observed_state
 
-        # Count the sum of visit to the red grid
-        area = self.map_width * self.map_height
-        reward = torch.sum(obs_mask.unsqueeze(-1) * self.realization_state[2])/area
+        # New fire grid
+        new_fire = torch.clamp(self.realization_state[2] - self.prev_state, 0, 1)
+
+        # Count the sum of visit to the new red grid
+        #reward = torch.sum(obs_mask * self.realization_state[2])/torch.sum(obs_mask)
+        reward = torch.sum(obs_mask * new_fire[2])
+
+        # Update the previous state
+        self.prev_state = self.realization_state
 
         return self.masked_observation, self.observed_state, self.realization_state, reward.item()
 

@@ -306,7 +306,7 @@ def model_based_recursive_estimation():
 
 
 class Vehicle:
-    def __init__(self, n_vehicle = 3, n_time_windows=500, grid_size=(64, 64)):
+    def __init__(self, n_vehicle = 3, n_time_windows=500, grid_size=(64, 64), planner_type='Default'):
 
         self.grid_size = grid_size
         self.n_vehicle = n_vehicle # This will be used later.
@@ -316,6 +316,9 @@ class Vehicle:
 
         self.action_set = [[0, 1],[-1, 0],[1, 0],[0,-1]]
         self.n_action = len(self.action_set)
+
+        ### Planenr type ###
+        self.planner_type = planner_type
 
 
     def full_mask(self):
@@ -378,40 +381,55 @@ class Vehicle:
         del trajectories, position_state, action_sum, i_indice_onehot, j_indice_onehot, positions_onehot
 
         ### Calcualte the Reward to Maximize given Map Visted Counter and State Estimate ###
+        '''
+        Uncertain grid visit reward
+        '''
+        # Uncertainty Reward - Shannon entropy
+        p = stat_est_map.squeeze()
+        log_p = torch.log(p)
+        uncertainty_grid = -torch.mean(p*log_p, 2)
+        uncertainty_grid = uncertainty_grid.unsqueeze(0).repeat(n_sample,1,1)
+        uncertainty_reward = torch.sum(uncertainty_grid*map_visted_binary, dim=(1,2))
 
-        if action_param == 0:
-            '''
-            Reward for visiting state estimate of 0 grid
-            '''
-            state0_prob = stat_est_map[:,:,0].squeeze().unsqueeze(0).repeat(n_sample,1,1)
-            rewards = state0_prob*map_visted_binary
 
-        elif action_param == 1:
-            '''
-            Reward for visiting state estimate of 1 grid
-            '''
-            state1_prob = stat_est_map[:,:,1].squeeze().unsqueeze(0).repeat(n_sample,1,1)
-            rewards = state1_prob*map_visted_binary
+        ### Rewards based on the action and settings
+        rewards = torch.sum(map_visted_binary, dim=(1,2)) 
 
-        elif action_param == 2:
-            '''
-            Reward for visiting state estimate of 2 grid
-            '''
-            state2_prob = stat_est_map[:,:,2].squeeze().unsqueeze(0).repeat(n_sample,1,1)
-            rewards = state2_prob*map_visted_binary
+        if self.planner_type == 'Random':
+            rewards += 0
 
-        else:
-            '''
-            Uncertain grid visit reward
-            '''
-            # Uncertainty Reward - Shannon entropy
-            p = stat_est_map.squeeze()
-            log_p = torch.log(p)
-            uncertainty_grid = -torch.mean(p*log_p, 2)
-            uncertainty_grid = uncertainty_grid.unsqueeze(0).repeat(n_sample,1,1)
-            rewards = uncertainty_grid*map_visted_binary
+        elif self.planner_type == 'VisitingGrayArea':
+            rewards += uncertainty_reward
 
-        rewards = torch.sum(rewards, dim=(1,2))
+        else:    
+            if action_param == 0:
+                '''
+                Reward for visiting state estimate of 0 grid
+                '''
+                state0_prob = stat_est_map[:,:,0].squeeze().unsqueeze(0).repeat(n_sample,1,1)
+                rewards += torch.sum(state0_prob*map_visted_binary, dim=(1,2))
+
+            elif action_param == 1:
+                '''
+                Reward for visiting state estimate of 1 grid
+                '''
+                state1_prob = stat_est_map[:,:,1].squeeze().unsqueeze(0).repeat(n_sample,1,1)
+                rewards += torch.sum(state1_prob*map_visted_binary, dim=(1,2))
+
+            elif action_param == 2:
+                '''
+                Reward for visiting state estimate of 2 grid
+                '''
+                state2_prob = stat_est_map[:,:,2].squeeze().unsqueeze(0).repeat(n_sample,1,1)
+                rewards +=  torch.sum(state2_prob*map_visted_binary, dim=(1,2))
+
+            else:
+                '''
+                Uncertain grid visit reward
+                '''
+                rewards += uncertainty_reward
+    
+        
         indice = torch.argmax(rewards)
         max_val = rewards[indice]
 

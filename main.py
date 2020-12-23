@@ -33,14 +33,14 @@ SETTING.update({'betas_optim_dynautoenc':BETAS})
 N_TRAIN_WINDOW = 1000
 N_TRAIN_BATCH = 1
 N_TRAIN_WAIT = 1000
-N_TOTAL_TIME_STEPS = 50000
-N_MEMORY_SIZE = 10000
+N_TOTAL_TIME_STEPS = 30000
+N_MEMORY_SIZE = 5000
 
 N_LOGGING_PERIOD = 200
 N_SAVING_PERIOD = 5000
 N_RENDER_PERIOD = 1
 
-def train(fullcover, name, omega):
+def train(fullcover, name, setting):
 
     n_sample = 20
 
@@ -48,7 +48,7 @@ def train(fullcover, name, omega):
     env = FireEnvironment(64, 64)
 
     # Vehicle to generate observation mask
-    vehicle = Vehicle(n_time_windows=500, grid_size=(64,64))
+    vehicle = Vehicle(n_time_windows=1000, grid_size=(64,64), planner_type=setting['planner_type'])
 
     # Trainer and Estimator
     dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
@@ -59,12 +59,17 @@ def train(fullcover, name, omega):
     ### DQN agent
     dqn_agent = DQN_Agent(state_size=16, action_size=4, replay_memory_size=1000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.01, update_rate=1, seed=0)
 
-
-
-
     # Train Iteration Logger
     from torch.utils.tensorboard import SummaryWriter
     writer = SummaryWriter()
+
+    # Add concat. text
+    setting_text = ''
+    for k,v in setting.items():
+        setting_text += k
+        setting_text += str(v)
+        setting_text += '\t'
+    writer.add_text('setting', setting_text)
 
 
     ########################################
@@ -79,7 +84,9 @@ def train(fullcover, name, omega):
     list_cross_entropy_loss = []
     list_entropy_loss = []
     list_rewards = []
-    list_performance = []
+    list_count_fire_visit = []
+    list_count_all_fire = []
+    list_action = []
 
     ### Filling the Data Buffer ###
     for i in tqdm.tqdm(range(N_TRAIN_WAIT)):         
@@ -98,7 +105,8 @@ def train(fullcover, name, omega):
         # determine epsilon-greedy action from current sate
         h_k = dyn_autoencoder.h_k.squeeze().data.cpu().numpy()
         epsilon = 0.1
-        action = dqn_agent.act(h_k, epsilon)    
+        action = dqn_agent.act(h_k, epsilon)
+        list_action.append(action)    
 
         ### Collect Data from the Env. ###
         if fullcover:
@@ -118,16 +126,14 @@ def train(fullcover, name, omega):
         dqn_agent.step(h_k, action, reward, h_kp1, done=False)
 
         list_rewards.append(reward)
-        fire_ratio = (torch.sum(state[2])/64/64).item()
+        fire_count = (torch.sum(state[2])).item()
+        fire_visit = (torch.sum(mask_obs.permute(2,0,1) * state[2].unsqueeze(0))).item()
 
-        if fire_ratio < 0.001:
+        if fire_count < 1:
             print('no fire')
         else:
-            print('reward', reward)
-            print('fire_ratio', fire_ratio)
-            list_performance.append(reward/fire_ratio)
-
-
+            list_count_fire_visit.append(fire_visit)
+            list_count_all_fire.append(fire_count)
 
         ### Render the Env. and the Est. ###
         if i % N_RENDER_PERIOD == 0:
@@ -135,8 +141,7 @@ def train(fullcover, name, omega):
             img_state_est_grid = dyn_autoencoder.output_image(state_est_grid)
             
             render('env', img_env, 1)
-            render('img_state_est_grid', img_state_est_grid, 1)
-            
+            render('img_state_est_grid', img_state_est_grid, 1)            
 
 
         ### Training ###
@@ -162,9 +167,27 @@ def train(fullcover, name, omega):
             list_rewards = []
             writer.add_scalar('perform/rewards', avg_reward, i)
 
-            avg_perform = np.mean(np.array(list_performance))
-            list_performance = []
-            writer.add_scalar('perform/avg_perform', avg_perform, i)
+            avg_count_fire_visit = np.mean(np.array(list_count_fire_visit))
+            list_count_fire_visit = []
+            writer.add_scalar('perform/avg_count_fire_visit', avg_count_fire_visit, i)
+
+            avg_count_all_fire = np.mean(np.array(list_count_all_fire))
+            list_count_all_fire = []
+            writer.add_scalar('perform/avg_count_all_fire', avg_count_all_fire, i)
+
+
+            action_0_count = list_action.count(0)
+            action_1_count = list_action.count(1)
+            action_2_count = list_action.count(2)
+            action_3_count = list_action.count(3)
+            list_action = []
+
+            if setting['planner_type'] == 'Default':
+                writer.add_scalar('action_count/0', action_0_count, i)
+                writer.add_scalar('action_count/1', action_1_count, i)
+                writer.add_scalar('action_count/2', action_2_count, i)
+                writer.add_scalar('action_count/3', action_3_count, i)
+
 
             writer.add_scalar('obs_state0/o00', O_np_val[0][0], i)
             writer.add_scalar('obs_state1/o01', O_np_val[0][1], i)
@@ -180,7 +203,7 @@ def train(fullcover, name, omega):
             print('memory size at iteration: %d, size: %d' % (i, len(memory.obs_memory)))
 
         if (i+1)%N_SAVING_PERIOD==0:
-            f_name = name+str(omega)
+            f_name = name
             dyn_autoencoder.save_the_model(i, f_name)
 
 
@@ -281,39 +304,21 @@ def use_the_model_with_a_planner(name, omega, n_iteration):
 
     writer.release()
 
-    render('env', img_env, -1)
-    render('img_state_est_grid', img_state_est_grid, -1)
+    render('env', img_env, 1)
+    render('img_state_est_grid', img_state_est_grid, 1)
 
 
     
 if __name__ == "__main__":
 
-
-    '''
-
-    
-
-    name = "Cork"
-    omega = 1.0
-    n_iteration = 49999
-
-    use_the_model_with_a_planner(name, omega, n_iteration)
-    '''
-
-    
-
     import names
-    
-    
-    last_name = names.get_last_name()
 
-    
-
-    #use_the_model(44999)
-
-    for i in range(5):
-        last_name = names.get_last_name()
-        omega = 1.0
-        train(False, last_name, omega)
-
-    
+    setting = {}
+    planner_list = ['Random', 'Default', 'VisitingGrayArea']
+    for i in range(3):
+        for planner_type in planner_list:
+            
+            last_name = names.get_last_name()
+            setting.update({'planner_type':planner_type})
+            setting.update({'name':last_name})
+            train(False, last_name, setting)

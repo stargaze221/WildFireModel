@@ -48,7 +48,7 @@ def train(fullcover, name, omega):
     env = FireEnvironment(64, 64)
 
     # Vehicle to generate observation mask
-    vehicle = Vehicle(n_time_windows=1024, grid_size=(64,64))
+    vehicle = Vehicle(n_time_windows=500, grid_size=(64,64))
 
     # Trainer and Estimator
     dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
@@ -57,7 +57,7 @@ def train(fullcover, name, omega):
     memory = SingleTrajectoryBuffer(N_MEMORY_SIZE)
 
     ### DQN agent
-    dqn_agent = DQN_Agent(state_size=16, action_size=4, replay_memory_size=10000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.002, update_rate=4, seed=0)
+    dqn_agent = DQN_Agent(state_size=16, action_size=4, replay_memory_size=1000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.01, update_rate=1, seed=0)
 
 
 
@@ -78,6 +78,8 @@ def train(fullcover, name, omega):
     list_loss = []
     list_cross_entropy_loss = []
     list_entropy_loss = []
+    list_rewards = []
+    list_performance = []
 
     ### Filling the Data Buffer ###
     for i in tqdm.tqdm(range(N_TRAIN_WAIT)):         
@@ -115,6 +117,16 @@ def train(fullcover, name, omega):
         #### Update the reinforcement learning agent ###
         dqn_agent.step(h_k, action, reward, h_kp1, done=False)
 
+        list_rewards.append(reward)
+        fire_ratio = (torch.sum(state[2])/64/64).item()
+
+        if fire_ratio < 0.001:
+            print('no fire')
+        else:
+            print('reward', reward)
+            print('fire_ratio', fire_ratio)
+            list_performance.append(reward/fire_ratio)
+
 
 
         ### Render the Env. and the Est. ###
@@ -145,6 +157,14 @@ def train(fullcover, name, omega):
             avg_loss_entropy = np.mean(np.array(list_entropy_loss))
             list_entropy_loss = []
             writer.add_scalar('dynautoenc/shannonentropy', avg_loss_entropy, i)
+
+            avg_reward = np.mean(np.array(list_rewards))
+            list_rewards = []
+            writer.add_scalar('perform/rewards', avg_reward, i)
+
+            avg_perform = np.mean(np.array(list_performance))
+            list_performance = []
+            writer.add_scalar('perform/avg_perform', avg_perform, i)
 
             writer.add_scalar('obs_state0/o00', O_np_val[0][0], i)
             writer.add_scalar('obs_state1/o01', O_np_val[0][1], i)

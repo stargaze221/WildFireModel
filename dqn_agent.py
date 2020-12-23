@@ -25,6 +25,7 @@ from replay_memory import ReplayBuffer
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
+BETAS = (0.5, 0.9)
 
 
 
@@ -77,7 +78,7 @@ class Agent():
         """
         self.network = QNetwork(state_size, action_size, seed).to(device)
         self.target_network = QNetwork(state_size, action_size, seed).to(device)
-        self.optimizer = optim.Adam(self.network.parameters(), lr=self.learn_rate)
+        self.optimizer = optim.Adam(self.network.parameters(), lr=self.learn_rate, betas=BETAS)
 
         # Replay memory
         self.memory = ReplayBuffer(action_size, self.buffer_size, self.batch_size, seed)

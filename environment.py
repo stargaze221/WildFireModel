@@ -118,19 +118,25 @@ class FireEnvironment:
 
         ## Maks observation 
         #obs_mask = torch.FloatTensor(obs_mask).unsqueeze(-1).to(DEVICE)
-        self.masked_observation = obs_mask.unsqueeze(-1) * self.observed_state
+        if obs_mask != None:
+            self.masked_observation = obs_mask.unsqueeze(-1) * self.observed_state
+        else:
+            self.masked_observation = self.observed_state
 
         # New fire grid
         new_fire = torch.clamp(self.realization_state[2] - self.prev_state, 0, 1)
 
         # Count the sum of visit to the new red grid
         #reward = torch.sum(obs_mask * self.realization_state[2])/torch.sum(obs_mask)
-        reward = torch.sum(obs_mask * new_fire[2])
+        if obs_mask != None:
+            reward = torch.sum(obs_mask * new_fire[2]).item()
+        else:
+            reward = None
 
         # Update the previous state
         self.prev_state = self.realization_state
 
-        return self.masked_observation, self.observed_state, self.realization_state, reward.item()
+        return self.masked_observation, self.observed_state, self.realization_state, reward
 
     def observe(self):
         prob_to_sample = torch.unsqueeze(self.realization_state.clone().detach().permute(1, 2, 0).reshape(-1, 3),2)

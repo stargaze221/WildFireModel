@@ -11,10 +11,10 @@ from params import TRANSITION_CNN_LAYER_WT, DEVICE, ACTION_SET, OBSERVTAION_MATR
 IF_PRINT = False
 EPS = 1e-10
 
-class POMDPAgent(nn.Module):
+class BaysianEstimator(nn.Module):
 
     def __init__(self, grid_size, n_obs, n_state):
-        super(POMDPAgent, self).__init__()
+        super(BaysianEstimator, self).__init__()
 
         self.grid_size = grid_size # (w, h)
 
@@ -277,39 +277,32 @@ class DynamicAutoEncoder:
         return loss_val, loss1_val, loss2_val, O_np_val
 
 
+class ImageStreamWriter:
 
-def render (window_name, image, wait_time):
+    def __init__(self, f_path, fps, image_size):
+        self.writer = cv2.VideoWriter(f_path, cv2.VideoWriter_fourcc(*"MJPG"), fps, image_size)
+
+    def write_image_frame(self, image_frame):
+        self.writer.write(image_frame)
+
+    def close(self):
+        self.writer.release()
+
+
+
+
+def render(window_name, image, wait_time):
     cv2.imshow(window_name, image)
     cv2.waitKey(wait_time)
 
 
-def model_based_recursive_estimation():
-    from environment import FireEnvironment
 
-    env = FireEnvironment(50, 50)
-    agent = POMDPAgent(grid_size = (env.map_width, env.map_height), n_obs=3, n_state=3)
-    
-    obs, state = env.reset()
-
-    for i in range(5000):
-
-        img_env   = env.output_image()
-        img_agent = agent.output_image()
-
-        render('env', img_env, 10)
-        render('est', img_agent, 10)
-
-        act = random.randrange(len(ACTION_SET))
-        obs, state = env.step(ACTION_SET[act])
-
-        state_est = agent.Bayesian_update(obs)
 
 
 class Vehicle:
-    def __init__(self, n_vehicle = 3, n_time_windows=500, grid_size=(64, 64), planner_type='Default'):
+    def __init__(self, n_time_windows=512, grid_size=(64, 64), planner_type='Default'):
 
         self.grid_size = grid_size
-        self.n_vehicle = n_vehicle # This will be used later.
 
         self.n_time_windows = n_time_windows
         self.position_state = np.zeros(2) #torch.zeros(2,1)
@@ -446,37 +439,3 @@ class Vehicle:
         torch.cuda.empty_cache()
 
         return mask, img_resized
-
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    import cv2
-    size = (400,400)
-
-    out = cv2.VideoWriter('project.avi',cv2.VideoWriter_fourcc(*'DIVX'), 15, size)
- 
-       
-    vehicle = Vehicle()
-    for i in range(100):
-        visit_mask, img_resized = vehicle.plan_a_trajectory()
-        #print(img_resized.shape)
-        frame = img_resized #cv2.cvtColor(img_resized, cv2.COLOR_GRAY2BGR)
-        out.write(frame)
-        render('mask', img_resized, 1) 
-
-    out.release()
-    
-
-    
-
-
-
-
-
-

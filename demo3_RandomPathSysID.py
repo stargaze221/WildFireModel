@@ -39,12 +39,13 @@ FPS=10
 
 def demo2_SysID(setting):
 
-    n_sample = 100
+    n_sample = 1
+    action_param = 3
 
     # Environment
     env = FireEnvironment(64, 64)
     # Vehicle to generate observation mask
-    vehicle = Vehicle(n_time_windows=512, grid_size=(64,64))
+    vehicle = Vehicle(n_time_windows=512, grid_size=(64,64), planner_type='Random')
     # Trainer and Estimator
     dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
     # Train Data Buffer
@@ -53,7 +54,7 @@ def demo2_SysID(setting):
     from torch.utils.tensorboard import SummaryWriter
     writer = SummaryWriter()
     # Video Writier
-    video_writer1 = ImageStreamWriter('DynamicAutoEncoder.avi', FPS, image_size=(1200,820))
+    video_writer1 = ImageStreamWriter('RandomPathSysId.avi', FPS, image_size=(1200,820))
 
     # Add concat. text
     setting_text = ''
@@ -68,8 +69,8 @@ def demo2_SysID(setting):
     ### Interacting with the Environment ###
     ########################################
     mask_obs, obs, state = env.reset()
-    map_visit_mask, img_resized = vehicle.full_mask()
     state_est_grid = dyn_autoencoder.u_k
+    map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action_param)
 
     ### Loss Monitors ###
     list_loss = []
@@ -88,7 +89,7 @@ def demo2_SysID(setting):
         h_k = dyn_autoencoder.h_k.squeeze().data.cpu().numpy()
         
         ### Collect Data from the Env. ###
-        map_visit_mask, img_resized = vehicle.full_mask()
+        map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action_param)
         mask_obs, obs, state, reward = env.step(map_visit_mask)
         memory.add(mask_obs, state, map_visit_mask)
 
@@ -104,8 +105,8 @@ def demo2_SysID(setting):
         img_agent = dyn_autoencoder.output_image(state_est_grid)
 
         # State Est
-        blank = np.zeros((400, 200, 3))
-        img_top = np.concatenate((blank, img_env[:,:800], blank), axis=1)
+        #blank = np.zeros((400, 200, 3))
+        img_top = img_env  #np.concatenate((blank, img_env[:,:800], blank), axis=1)
         blank = np.zeros((20, 1200, 3))
         img_top = np.concatenate((img_top, blank), axis=0)
         img_top = (img_top*255).astype('uint8')
@@ -161,5 +162,5 @@ def demo2_SysID(setting):
 if __name__ == "__main__":
 
     setting = {}
-    setting.update({'name':'demo2'})
+    setting.update({'name':'demo3'})
     demo2_SysID(setting)

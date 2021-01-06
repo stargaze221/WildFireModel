@@ -85,7 +85,7 @@ def demo4_LearningPathPlanning(setting):
     for i in tqdm.tqdm(range(N_TRAIN_WAIT)):         
         map_visit_mask, img_resized =  vehicle.full_mask()
         mask_obs, obs, state, reward, info = env.step(map_visit_mask)
-        memory.add(mask_obs, state, map_visit_mask)
+        memory.add(mask_obs.detach().long(), state.detach().long(), map_visit_mask.detach().long())
 
     for i in tqdm.tqdm(range(N_TOTAL_TIME_STEPS)):
 

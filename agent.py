@@ -209,7 +209,7 @@ class DynamicAutoEncoder:
         ### Foward the observation through the model ###
         for i in range(n_batch):
             ### Encoding and Likelihood ###
-            obs_stream = torch.stack(batch_obs_stream[i])
+            obs_stream = torch.stack(batch_obs_stream[i]).float()
             batch_tgt_obs_stream.append(obs_stream.unsqueeze(-1))
             obs_stream = obs_stream.squeeze().permute(0, 3, 1, 2).contiguous()
             x_stream = self.model.encoder(obs_stream)

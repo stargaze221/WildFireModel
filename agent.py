@@ -366,6 +366,20 @@ class Vehicle:
             terminal_positions = trajectories[-1]
 
             ### Cacaluate Visit Counter Map ###
+            map_visted_binary = torch.zeros((n_sample, self.grid_size[0], self.grid_size[1])).to(DEVICE).long()
+            T = trajectories.size()[0]
+            for t in range(T):
+                indice = trajectories[t]
+                i_indice_onehot = torch.nn.functional.one_hot(indice[:,0], num_classes=self.grid_size[0]).repeat(1, self.grid_size[1], 1).int().detach()
+                j_indice_onehot = torch.nn.functional.one_hot(indice[:,1], num_classes=self.grid_size[1]).repeat(1, self.grid_size[0], 1).permute(0, 2, 1).int().detach()
+                positions_onehot = i_indice_onehot * j_indice_onehot
+                map_visted_binary += positions_onehot
+            map_visted_binary = torch.clamp(map_visted_binary, 0, 1).float()
+
+            del trajectories, position_state, action_sum, i_indice_onehot, j_indice_onehot, positions_onehot
+            torch.cuda.empty_cache()
+
+            '''
             i_indice_onehot = torch.nn.functional.one_hot(trajectories[:,:,0], num_classes=self.grid_size[0]).repeat(1, 1, self.grid_size[1], 1).int().detach()
             j_indice_onehot = torch.nn.functional.one_hot(trajectories[:,:,1], num_classes=self.grid_size[1]).repeat(1, 1, self.grid_size[0], 1).permute(0, 1, 3, 2).int().detach()
             positions_onehot = i_indice_onehot * j_indice_onehot
@@ -373,6 +387,7 @@ class Vehicle:
             torch.cuda.empty_cache()
 
             map_visted_binary = torch.clamp(torch.sum(positions_onehot, dim=0), 0, 1).float()
+            '''
             
             ### Calcualte the Reward to Maximize given Map Visted Counter and State Estimate ###
             '''
@@ -439,7 +454,21 @@ class Vehicle:
             self.position_state = terminal_positions[indice].squeeze().cpu().data.numpy()
 
             ### Delete Torch Tensors being Accumulated ###
-            del terminal_positions, rewards, map_visted_binary, indice, uncertainty_reward, stat_est_map, positions_onehot
+            del terminal_positions, rewards, map_visted_binary, indice, uncertainty_reward, stat_est_map
             torch.cuda.empty_cache()
 
         return mask, img_resized
+
+
+            
+
+
+if __name__ == "__main__":
+    vehicle = Vehicle()
+
+    n_sample = 100
+    action_param = 3
+
+    stat_est_map = F.softmax(torch.rand(64, 64, 3, 1),2).to(DEVICE)
+
+    vehicle.new_trajectory(stat_est_map, n_sample, action_param)

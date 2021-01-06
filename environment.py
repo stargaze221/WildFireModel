@@ -109,34 +109,50 @@ class FireEnvironment:
         return self.masked_observation, self.observed_state, self.realization_state
 
     def step(self, obs_mask=None):
-        state = torch.unsqueeze(self.realization_state, 0).to(DEVICE)
-        prob_dist = self.transition(state).squeeze()
-        prob_dist = prob_dist / torch.sum(prob_dist, 0)
-        prob_to_sample = prob_dist.clone().detach()
-        self.realization_state = self.sample_gridmap_from_fire_dist(prob_to_sample)
-        self.observed_state = self.observe()
+        with torch.no_grad():
+            state = torch.unsqueeze(self.realization_state, 0).to(DEVICE)
+            prob_dist = self.transition(state).squeeze()
+            prob_dist = prob_dist / torch.sum(prob_dist, 0)
+            prob_to_sample = prob_dist.clone().detach()
+            self.realization_state = self.sample_gridmap_from_fire_dist(prob_to_sample)
+            self.observed_state = self.observe()
 
-        ## Maks observation 
-        #obs_mask = torch.FloatTensor(obs_mask).unsqueeze(-1).to(DEVICE)
-        if obs_mask != None:
-            self.masked_observation = obs_mask.unsqueeze(-1) * self.observed_state
-        else:
-            self.masked_observation = self.observed_state
+            ## Maks observation 
+            #obs_mask = torch.FloatTensor(obs_mask).unsqueeze(-1).to(DEVICE)
+            if obs_mask != None:
+                obs_mask = obs_mask.to(DEVICE)
+                self.masked_observation = obs_mask.unsqueeze(-1) * self.observed_state
+            else:
+                self.masked_observation = self.observed_state
 
-        # New fire grid
-        new_fire = torch.clamp(self.realization_state[2] - self.prev_state, 0, 1)
+            # New fire grid
+            new_fire = torch.clamp(self.realization_state[2] - self.prev_state[2], 0, 1)
 
-        # Count the sum of visit to the new red grid
-        #reward = torch.sum(obs_mask * self.realization_state[2])/torch.sum(obs_mask)
-        if obs_mask != None:
-            reward = torch.sum(obs_mask * new_fire[2]).item()
-        else:
-            reward = None
+            '''
+            print('realization_state[2]:', self.realization_state[2].size())
+            print('new_fire:', new_fire.size(), new_fire.max(), new_fire.min())        
+            print('obs_mask:', obs_mask.size())
+            '''
 
-        # Update the previous state
-        self.prev_state = self.realization_state
+            # Count the sum of visit to the new red grid
+            #reward = torch.sum(obs_mask * self.realization_state[2])/torch.sum(obs_mask)
+            if obs_mask != None:
+                reward = torch.sum(obs_mask * new_fire).item()
+            else:
+                reward = None
 
-        return self.masked_observation, self.observed_state, self.realization_state, reward
+            # Update the previous state
+            self.prev_state = self.realization_state
+
+            info ={}
+            info.update({'new_fire_count': torch.sum(new_fire).item()})
+
+            #print('reward:', reward, 'new_fire_count', info['new_fire_count'])
+
+            del new_fire, state, prob_dist, prob_to_sample
+            torch.cuda.empty_cache()
+
+        return self.masked_observation, self.observed_state, self.realization_state, reward, info
 
     def observe(self):
         prob_to_sample = torch.unsqueeze(self.realization_state.clone().detach().permute(1, 2, 0).reshape(-1, 3),2)

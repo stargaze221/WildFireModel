@@ -79,7 +79,7 @@ def demo2_SysID(setting):
     ### Filling the Data Buffer ###
     for i in tqdm.tqdm(range(N_TRAIN_WAIT)):         
         map_visit_mask, img_resized =  vehicle.full_mask()
-        mask_obs, obs, state, reward = env.step(map_visit_mask)
+        mask_obs, obs, state, reward, info = env.step(map_visit_mask)
         memory.add(mask_obs, state, map_visit_mask)
 
     for i in tqdm.tqdm(range(N_TOTAL_TIME_STEPS)):
@@ -89,7 +89,7 @@ def demo2_SysID(setting):
         
         ### Collect Data from the Env. ###
         map_visit_mask, img_resized = vehicle.full_mask()
-        mask_obs, obs, state, reward = env.step(map_visit_mask)
+        mask_obs, obs, state, reward, info = env.step(map_visit_mask)
         memory.add(mask_obs, state, map_visit_mask)
 
         ### Run the Estimator ###

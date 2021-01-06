@@ -49,7 +49,7 @@ def model_based_recursive_estimation():
         ######################################
         ### Step Env. and Update Estimator ###
         ######################################
-        mask_obs, obs, state, reward = env.step()
+        mask_obs, obs, state, reward, info = env.step()
         state_est = agent.Bayesian_update(obs)
 
     video_writer0.close()

@@ -107,7 +107,6 @@ class DynamicAutoEncoder:
 
     def __init__(self, setting, grid_size, n_state, n_obs, encoding_dim, gru_hidden_dim):
 
-
         self.model = DynamicAutoEncoderNetwork(grid_size, n_state, n_obs, encoding_dim, gru_hidden_dim).to(DEVICE)
         self.optimizer = torch.optim.Adam(self.model.parameters(), setting['lr_optim_dynautoenc'], setting['betas_optim_dynautoenc'])
 
@@ -138,41 +137,42 @@ class DynamicAutoEncoder:
 
 
     def step(self, obs, mask):
-        self.model.eval()
+        with torch.no_grad():
+            self.model.eval()
 
-        ### Likelihood ###
-        O_T = F.softmax(self.model.W_obs_param,0).T # Transpose of the observation matrix
-        O_T = O_T.unsqueeze(0).unsqueeze(0).repeat(self.grid_size[0], self.grid_size[1], 1, 1)
-        y = obs.unsqueeze(-1).detach()
-        b = torch.matmul(O_T, y)
+            ### Likelihood ###
+            O_T = F.softmax(self.model.W_obs_param,0).T # Transpose of the observation matrix
+            O_T = O_T.unsqueeze(0).unsqueeze(0).repeat(self.grid_size[0], self.grid_size[1], 1, 1)
+            y = obs.unsqueeze(-1).detach()
+            b = torch.matmul(O_T, y)
 
-        ### State Estimate ###
-        Bu = b*self.u_k # Size : w x h x n_state x 1
-        bu =  torch.sum(Bu, 2).unsqueeze(-1)
-        Bu_over_bu = Bu / bu # Size : w x h x n_state x 1
-        Bu_over_bu[Bu_over_bu != Bu_over_bu] = 0 
+            ### State Estimate ###
+            Bu = b*self.u_k # Size : w x h x n_state x 1
+            bu =  torch.sum(Bu, 2).unsqueeze(-1)
+            Bu_over_bu = Bu / bu # Size : w x h x n_state x 1
+            Bu_over_bu[Bu_over_bu != Bu_over_bu] = 0 
 
-        ### Masking ###
-        mask = mask.unsqueeze(-1).unsqueeze(-1)
-        state_est_grid = self.u_k*(1-mask)
-        state_est_grid = state_est_grid + Bu_over_bu*mask
+            ### Masking ###
+            mask = mask.unsqueeze(-1).unsqueeze(-1)
+            state_est_grid = self.u_k*(1-mask)
+            state_est_grid = state_est_grid + Bu_over_bu*mask
 
-        ### Encoding the Likelihood ###
-        obs = obs.unsqueeze(-1).detach()
-        x = self.model.encoder(obs.permute(3,2,0,1).contiguous())
+            ### Encoding the Likelihood ###
+            obs = obs.unsqueeze(-1).detach()
+            x = self.model.encoder(obs.permute(3,2,0,1).contiguous())
 
-        ### RNN Step ###
-        h0 = self.h_k
-        output, h_n = self.model.rnn_layer(x.unsqueeze(0), h0)
-        self.h_k = output.detach()
+            ### RNN Step ###
+            h0 = self.h_k
+            output, h_n = self.model.rnn_layer(x.unsqueeze(0), h0)
+            self.h_k = output.detach()
 
-        ### Decoding ###
-        output = output[0].unsqueeze(-1).unsqueeze(-1)
-        pred_state_est = self.model.decoder(output)
-        pred_state_est = pred_state_est[:, :, :self.grid_size[0], :self.grid_size[1]] # Crop Image
-        pred_state_est = F.softmax(pred_state_est, 1)
-        pred_state_est = pred_state_est.permute(2, 3, 1, 0).contiguous()
-        self.u_k = pred_state_est.detach()
+            ### Decoding ###
+            output = output[0].unsqueeze(-1).unsqueeze(-1)
+            pred_state_est = self.model.decoder(output)
+            pred_state_est = pred_state_est[:, :, :self.grid_size[0], :self.grid_size[1]] # Crop Image
+            pred_state_est = F.softmax(pred_state_est, 1)
+            pred_state_est = pred_state_est.permute(2, 3, 1, 0).contiguous()
+            self.u_k = pred_state_est.detach()
 
         return state_est_grid
     
@@ -297,8 +297,6 @@ def render(window_name, image, wait_time):
 
 
 
-
-
 class Vehicle:
     def __init__(self, n_time_windows=512, grid_size=(64, 64), planner_type='Default'):
 
@@ -346,96 +344,102 @@ class Vehicle:
 
 
     def plan_a_trajectory(self, stat_est_map, n_sample, action_param):
+        with torch.no_grad():
 
-        #u_basis = (torch.LongTensor(self.action_set).T).to(DEVICE).detach()
-        u_basis = torch.LongTensor([[1,0],[-1,0],[0,1],[0,-1]]).T.to(DEVICE).detach()
-        position_state = torch.LongTensor(self.position_state).unsqueeze(-1).to(DEVICE).detach()
+            #u_basis = (torch.LongTensor(self.action_set).T).to(DEVICE).detach()
+            u_basis = torch.LongTensor([[1,0],[-1,0],[0,1],[0,-1]]).T.to(DEVICE).detach()
+            position_state = torch.LongTensor(self.position_state).unsqueeze(-1).to(DEVICE).detach()
 
-        ### Random Action Stream ###
-        action_samples = torch.randint(low=0, high=self.n_action, size=(n_sample, self.n_time_windows)).to(DEVICE).long().detach()
-        action_samples_onehot = torch.nn.functional.one_hot(action_samples, num_classes=self.n_action).unsqueeze(-1)
-        u_basis_repeat = u_basis.unsqueeze(0).unsqueeze(0)  
-        u_basis_repeat = u_basis_repeat.repeat(n_sample, self.n_time_windows, 1, 1)
-        del action_samples, u_basis
+            ### Random Action Stream ###
+            action_samples = torch.randint(low=0, high=self.n_action, size=(n_sample, self.n_time_windows)).to(DEVICE).long().detach()
+            action_samples_onehot = torch.nn.functional.one_hot(action_samples, num_classes=self.n_action).unsqueeze(-1)
+            u_basis_repeat = u_basis.unsqueeze(0).unsqueeze(0)  
+            u_basis_repeat = u_basis_repeat.repeat(n_sample, self.n_time_windows, 1, 1)
+            del action_samples, u_basis
 
-        ### Integrate the Action Stream and Add it to the State ###
-        action_sum = torch.matmul(u_basis_repeat.float(), action_samples_onehot.float()).detach()
-        action_sum = torch.cumsum(action_sum, 1)
-        trajectories = position_state + action_sum
-        trajectories = torch.clamp(trajectories, 0, self.grid_size[0]-1)
-        trajectories = trajectories.permute(1,0,2,3).long().to(DEVICE) # n_time x n_sample x n_coord x 1
-        terminal_positions = trajectories[-1]
+            ### Integrate the Action Stream and Add it to the State ###
+            action_sum = torch.matmul(u_basis_repeat.float(), action_samples_onehot.float()).detach()
+            action_sum = torch.cumsum(action_sum, 1)
+            trajectories = position_state + action_sum
+            trajectories = torch.clamp(trajectories, 0, self.grid_size[0]-1)
+            trajectories = trajectories.permute(1,0,2,3).long().to(DEVICE).detach() # n_time x n_sample x n_coord x 1
+            terminal_positions = trajectories[-1]
 
-        ### Cacaluate Visit Counter Map ###
-        i_indice_onehot = torch.nn.functional.one_hot(trajectories[:,:,0], num_classes=self.grid_size[0]).repeat(1, 1, self.grid_size[1], 1)
-        j_indice_onehot = torch.nn.functional.one_hot(trajectories[:,:,1], num_classes=self.grid_size[1]).repeat(1, 1, self.grid_size[0], 1).permute(0, 1, 3, 2)
-        positions_onehot = i_indice_onehot * j_indice_onehot
-        map_visted_binary = torch.clamp(torch.sum(positions_onehot, dim=0), 0, 1).float()
-        del trajectories, position_state, action_sum, i_indice_onehot, j_indice_onehot, positions_onehot
+            ### Cacaluate Visit Counter Map ###
+            i_indice_onehot = torch.nn.functional.one_hot(trajectories[:,:,0], num_classes=self.grid_size[0]).repeat(1, 1, self.grid_size[1], 1).int().detach()
+            j_indice_onehot = torch.nn.functional.one_hot(trajectories[:,:,1], num_classes=self.grid_size[1]).repeat(1, 1, self.grid_size[0], 1).permute(0, 1, 3, 2).int().detach()
+            positions_onehot = i_indice_onehot * j_indice_onehot
+            del trajectories, position_state, action_sum, i_indice_onehot, j_indice_onehot
+            torch.cuda.empty_cache()
 
-        ### Calcualte the Reward to Maximize given Map Visted Counter and State Estimate ###
-        '''
-        Uncertain grid visit reward
-        '''
-        # Uncertainty Reward - Shannon entropy
-        p = stat_est_map.squeeze()
-        log_p = torch.log(p)
-        uncertainty_grid = -torch.mean(p*log_p, 2)
-        uncertainty_grid = uncertainty_grid.unsqueeze(0).repeat(n_sample,1,1)
-        uncertainty_reward = torch.sum(uncertainty_grid*map_visted_binary, dim=(1,2))
+            map_visted_binary = torch.clamp(torch.sum(positions_onehot, dim=0), 0, 1).float()
+            
+            ### Calcualte the Reward to Maximize given Map Visted Counter and State Estimate ###
+            '''
+            Uncertain grid visit reward
+            '''
+            # Uncertainty Reward - Shannon entropy
+            p = stat_est_map.squeeze().detach()
+            log_p = torch.log(p).detach()
+            uncertainty_grid = -torch.mean(p*log_p, 2).detach()
+            uncertainty_grid = uncertainty_grid.unsqueeze(0).repeat(n_sample,1,1)
+            uncertainty_reward = torch.sum(uncertainty_grid*map_visted_binary, dim=(1,2))
 
 
-        ### Rewards based on the action and settings
-        rewards = torch.sum(map_visted_binary, dim=(1,2)) 
+            ### Rewards based on the action and settings
+            rewards = torch.sum(map_visted_binary, dim=(1,2)) 
 
-        if self.planner_type == 'Random':
-            rewards += 0
+            if self.planner_type == 'Random':
+                rewards += 0
 
-        elif self.planner_type == 'VisitingGrayArea':
-            rewards += uncertainty_reward
-
-        else:    
-            if action_param == 0:
-                '''
-                Reward for visiting state estimate of 0 grid
-                '''
-                state0_prob = stat_est_map[:,:,0].squeeze().unsqueeze(0).repeat(n_sample,1,1)
-                rewards += torch.sum(state0_prob*map_visted_binary, dim=(1,2))
-
-            elif action_param == 1:
-                '''
-                Reward for visiting state estimate of 1 grid
-                '''
-                state1_prob = stat_est_map[:,:,1].squeeze().unsqueeze(0).repeat(n_sample,1,1)
-                rewards += torch.sum(state1_prob*map_visted_binary, dim=(1,2))
-
-            elif action_param == 2:
-                '''
-                Reward for visiting state estimate of 2 grid
-                '''
-                state2_prob = stat_est_map[:,:,2].squeeze().unsqueeze(0).repeat(n_sample,1,1)
-                rewards +=  torch.sum(state2_prob*map_visted_binary, dim=(1,2))
-
-            else:
-                '''
-                Uncertain grid visit reward
-                '''
+            elif self.planner_type == 'VisitingGrayArea':
                 rewards += uncertainty_reward
-    
+
+            else:    
+                if action_param == 0:
+                    '''
+                    Reward for visiting state estimate of 0 grid
+                    '''
+                    state0_prob = stat_est_map[:,:,0].squeeze().unsqueeze(0).repeat(n_sample,1,1).detach()
+                    rewards += torch.sum(state0_prob*map_visted_binary, dim=(1,2))
+                    del state0_prob
+
+                elif action_param == 1:
+                    '''
+                    Reward for visiting state estimate of 1 grid
+                    '''
+                    state1_prob = stat_est_map[:,:,1].squeeze().unsqueeze(0).repeat(n_sample,1,1).detach()
+                    rewards += torch.sum(state1_prob*map_visted_binary, dim=(1,2))
+                    del state1_prob
+
+                elif action_param == 2:
+                    '''
+                    Reward for visiting state estimate of 2 grid
+                    '''
+                    state2_prob = stat_est_map[:,:,2].squeeze().unsqueeze(0).repeat(n_sample,1,1).detach()
+                    rewards +=  torch.sum(state2_prob*map_visted_binary, dim=(1,2))
+                    del state2_prob
+
+                else:
+                    '''
+                    Uncertain grid visit reward
+                    '''
+                    rewards += uncertainty_reward
         
-        indice = torch.argmax(rewards)
-        max_val = rewards[indice]
+            
+            indice = torch.argmax(rewards)
+            max_val = rewards[indice]
 
-        ### Return the best one out of the random search ###
-        mask = map_visted_binary[indice].float().detach()
-        dim = (400, 400)
-        img_resized = cv2.resize(mask.cpu().data.numpy(), dim, interpolation = cv2.INTER_AREA)
+            ### Return the best one out of the random search ###
+            mask = map_visted_binary[indice].float().detach()
+            dim = (400, 400)
+            img_resized = cv2.resize(mask.cpu().data.numpy(), dim, interpolation = cv2.INTER_AREA)
 
-        ### Update the initial position for the next iteration ###
-        self.position_state = terminal_positions[indice].squeeze().cpu().data.numpy()
+            ### Update the initial position for the next iteration ###
+            self.position_state = terminal_positions[indice].squeeze().cpu().data.numpy()
 
-        ### Delete Torch Tensors being Accumulated ###
-        del terminal_positions, rewards
-        torch.cuda.empty_cache()
+            ### Delete Torch Tensors being Accumulated ###
+            del terminal_positions, rewards, map_visted_binary, indice, uncertainty_reward, stat_est_map, positions_onehot
+            torch.cuda.empty_cache()
 
         return mask, img_resized

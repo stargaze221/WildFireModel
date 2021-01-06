@@ -37,7 +37,7 @@ N_RENDER_PERIOD = 1
 
 FPS=10
 
-def demo2_SysID(setting):
+def demo3_SysID(setting):
 
     n_sample = 1
     action_param = 3
@@ -80,7 +80,7 @@ def demo2_SysID(setting):
     ### Filling the Data Buffer ###
     for i in tqdm.tqdm(range(N_TRAIN_WAIT)):         
         map_visit_mask, img_resized =  vehicle.full_mask()
-        mask_obs, obs, state, reward = env.step(map_visit_mask)
+        mask_obs, obs, state, reward, info = env.step(map_visit_mask)
         memory.add(mask_obs, state, map_visit_mask)
 
     for i in tqdm.tqdm(range(N_TOTAL_TIME_STEPS)):
@@ -90,7 +90,7 @@ def demo2_SysID(setting):
         
         ### Collect Data from the Env. ###
         map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action_param)
-        mask_obs, obs, state, reward = env.step(map_visit_mask)
+        mask_obs, obs, state, reward, info = env.step(map_visit_mask)
         memory.add(mask_obs, state, map_visit_mask)
 
         ### Run the Estimator ###
@@ -163,4 +163,4 @@ if __name__ == "__main__":
 
     setting = {}
     setting.update({'name':'demo3'})
-    demo2_SysID(setting)
+    demo3_SysID(setting)

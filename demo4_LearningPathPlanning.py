@@ -188,6 +188,7 @@ def demo4_LearningPathPlanning(setting):
         if (i+1)%N_SAVING_PERIOD==0:
             f_name = setting['name']
             dyn_autoencoder.save_the_model(i, f_name)
+            dqn_agent.save_the_model(i, f_name)
 
     video_writer1.close()
 

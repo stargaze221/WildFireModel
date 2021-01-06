@@ -1,15 +1,22 @@
+'''
+List of Agents:
+- BaysianEstimator: Model based state estimation (that needs the true model parameters).
+- 
+'''
+import numpy as np
+import cv2, os, random
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import cv2
-import random
-import os
 
 from params import TRANSITION_CNN_LAYER_WT, DEVICE, ACTION_SET, OBSERVTAION_MATRIX
+from model import DynamicAutoEncoderNetwork
+
+
 
 IF_PRINT = False
-EPS = 1e-10
+EPS = 1e-10 # To avoid NAN in Log function.
 
 class BaysianEstimator(nn.Module):
 
@@ -43,16 +50,12 @@ class BaysianEstimator(nn.Module):
         img_state1 = img[:,:,1]
         img_state2 = img[:,:,2]
 
-        w, h = self.grid_size
-        blank = np.zeros((h, int(w/20)))
-        #img = np.concatenate((img_state0, blank, np.clip(img_state1 - img_state0, 0, 1), blank, img_state2), axis=1)
+        blank = np.zeros((self.grid_size[1], int(self.grid_size[0]/20)))
         img = np.concatenate((img_state0, blank, img_state1, blank, img_state2), axis=1)
-
-        dim = size
-        
-        img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+        img_resized = cv2.resize(img, size, interpolation = cv2.INTER_AREA)
 
         return img_resized
+
 
     def Bayesian_update(self, obs):
         '''
@@ -61,11 +64,7 @@ class BaysianEstimator(nn.Module):
                    B u_k
         u_k+1 = P --------
                    b u_k
-
-        where
-        obs: 
         '''
-
         ### Bayesian Posterior ###
         if IF_PRINT:    
             print('obs:', obs.size())
@@ -100,7 +99,7 @@ class BaysianEstimator(nn.Module):
 
         return self.state_est
 
-from model import DynamicAutoEncoderNetwork
+
 
 
 class DynamicAutoEncoder:
@@ -130,8 +129,8 @@ class DynamicAutoEncoder:
         print('Model Saved')
 
 
-    def load_the_model(self, name, omega, n_iteration):
-        f_path = './save/dynautoenc/dynautoenc_network_param_' +  str(n_iteration) + '_' + name + str(omega) + '_model.pth'
+    def load_the_model(self, iteration, f_name):
+        f_path = './save/dynautoenc/dynautoenc_network_param_' +  str(iteration) + '_' + f_name + str(omega) + '_model.pth'
         self.model.load_state_dict(torch.load(f_path))
         print('Model Loaded')
 

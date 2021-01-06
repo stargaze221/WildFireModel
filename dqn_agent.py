@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 import numpy as np
-import random
+import random, os
 from collections import namedtuple, deque
 
 from model import QNetwork
@@ -189,3 +189,17 @@ class Agent():
         """
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
+
+
+    def save_the_model(self, iteration, f_name):
+        if not os.path.exists('./save/dqn/'):
+            os.makedirs('./save/dqn/')
+        f_name = 'dqn_param_' +  str(iteration) + '_' + f_name + '_model.pth'
+        torch.save(self.network.state_dict(), './save/dqn/'+f_name)
+        print('DQN Model Saved')
+
+
+    def load_the_model(self, iteration, f_name):
+        f_path = './save/dqn/dqn_param_' +  str(iteration) + '_' + f_name + st + '_model.pth'
+        self.network(torch.load(f_path))
+        print('DQN Model Loaded')

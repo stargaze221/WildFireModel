@@ -39,7 +39,7 @@ FPS=10
 
 def demo4_LearningPathPlanning(setting):
 
-    n_sample = 50
+    n_sample = 100
     action_param = 3
 
     # Environment

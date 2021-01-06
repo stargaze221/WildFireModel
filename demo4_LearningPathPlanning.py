@@ -98,7 +98,7 @@ def demo4_LearningPathPlanning(setting):
         ### Collect Data from the Env. ###
         map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)
         mask_obs, obs, state, reward, info = env.step(map_visit_mask)
-        memory.add(mask_obs, state, map_visit_mask)
+        memory.add(mask_obs.detach().long(), state.detach().long(), map_visit_mask.detach().long())
 
         ### Run the Estimator ###
         state_est_grid = dyn_autoencoder.step(mask_obs, map_visit_mask)

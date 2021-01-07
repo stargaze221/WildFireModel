@@ -97,7 +97,10 @@ def demo5_ComparePolicies(setting):
 
         # Plan a trajectory
         policy_type = setting['policy_type']
-        if policy_type == 'Default' or 'Adaptive':
+        if policy_type == 'Default':
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)
+
+        elif policy_type == 'Adaptive':
             map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)
 
         elif policy_type == 'Random':

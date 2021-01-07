@@ -130,7 +130,7 @@ class DynamicAutoEncoder:
 
 
     def load_the_model(self, iteration, f_name):
-        f_path = './save/dynautoenc/dynautoenc_network_param_' +  str(iteration) + '_' + f_name + str(omega) + '_model.pth'
+        f_path = './save/dynautoenc/dynautoenc_network_param_' +  str(iteration) + '_' + f_name + '_model.pth'
         self.model.load_state_dict(torch.load(f_path))
         print('Model Loaded')
 

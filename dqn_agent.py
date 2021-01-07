@@ -200,6 +200,6 @@ class Agent():
 
 
     def load_the_model(self, iteration, f_name):
-        f_path = './save/dqn/dqn_param_' +  str(iteration) + '_' + f_name + st + '_model.pth'
-        self.network(torch.load(f_path))
+        f_path = './save/dqn/dqn_param_' +  str(iteration) + '_' + f_name + '_model.pth'
+        self.network.load_state_dict(torch.load(f_path))
         print('DQN Model Loaded')

@@ -2,7 +2,9 @@ import torch
 from torch.distributions.categorical import Categorical
 from torch import nn
 from torch.autograd import Variable
-import random
+
+torch.manual_seed(1234)
+
 
 import numpy as np
 import cv2

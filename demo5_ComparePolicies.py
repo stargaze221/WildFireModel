@@ -26,7 +26,7 @@ SETTING = {}
 SETTING.update({'lr_optim_dynautoenc':LR_ESTIMATOR})
 SETTING.update({'betas_optim_dynautoenc':BETAS})
 
-N_TOTAL_TIME_STEPS =  10000
+N_TOTAL_TIME_STEPS =  20000
 
 N_LOGGING_PERIOD = 200
 N_RENDER_PERIOD = 1
@@ -34,24 +34,21 @@ N_RENDER_PERIOD = 1
 N_TRAIN_WINDOW = 1000
 N_TRAIN_BATCH = 1
 N_MEMORY_SIZE = 5000
-
+N_TRAIN_WAIT = 1000
 
 FPS=10
 
-def demo5_ComparePolicies(setting):
+def demo5_ComparePolicies(setting, Env):
 
     n_sample = 100
 
-    # Environment
-    env = FireEnvironment(64, 64)
     # Vehicle to generate observation mask
     vehicle = Vehicle(n_time_windows=512, grid_size=(64,64), planner_type='Default')
     # Trainer and Estimator
     dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
-    dyn_autoencoder.load_the_model(29999, 'demo4')
+
     ### DQN agent  
     dqn_agent = DQN_Agent(state_size=16, action_size=4, replay_memory_size=1000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.01, update_rate=1, seed=0)
-    dqn_agent.load_the_model(29999, 'demo4')
 
     # Train Data Buffer
     memory = SingleTrajectoryBuffer(N_MEMORY_SIZE)
@@ -76,14 +73,21 @@ def demo5_ComparePolicies(setting):
     ########################################
     ### Interacting with the Environment ###
     ########################################
-    mask_obs, obs, state = env.reset()
-    state_est_grid = dyn_autoencoder.u_k
 
     ### Loss Monitors ###
     list_rewards = []
     list_new_fire_count = []
     list_action = []
     list_loss = []
+
+    ### Filling the Data Buffer ###
+    for i in tqdm.tqdm(range(N_TRAIN_WAIT)):         
+        map_visit_mask, img_resized =  vehicle.full_mask()
+        mask_obs, obs, state, reward, info = env.step(map_visit_mask)
+        memory.add(mask_obs.detach().long(), state.detach().long(), map_visit_mask.detach().long())
+
+    mask_obs, obs, state = env.reset()
+    state_est_grid = dyn_autoencoder.u_k
 
     for i in tqdm.tqdm(range(N_TOTAL_TIME_STEPS)):
 
@@ -94,14 +98,10 @@ def demo5_ComparePolicies(setting):
           
         
         ### Collect Data from the Env. ###
-
         # Plan a trajectory
         policy_type = setting['policy_type']
         if policy_type == 'Default':
-            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)
-
-        elif policy_type == 'Adaptive':
-            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)  
 
         elif policy_type == 'Random':
             action = 777
@@ -137,15 +137,14 @@ def demo5_ComparePolicies(setting):
         list_rewards.append(reward)
         list_new_fire_count.append(info['new_fire_count'])
 
-        if policy_type == 'Adaptive':
+        
+        update = True
+        #### Update the reinforcement learning agent and Dyn Auto Enc ###
+        if policy_type != 'Random':
+            dqn_agent.step(h_k, action, reward, h_kp1, False, update)
+            loss_val, loss_val_cross, loss_val_ent, O_np_val =  dyn_autoencoder.update(memory, N_TRAIN_BATCH, N_TRAIN_WINDOW, update)
+            list_loss.append(loss_val)
 
-            #### Update the reinforcement learning agent ###
-            dqn_agent.step(h_k, action, reward, h_kp1, done=False)
-
-            if i > N_TRAIN_WINDOW:
-                ### Training ###
-                loss_val, _, _, _ =  dyn_autoencoder.update(memory, N_TRAIN_BATCH, N_TRAIN_WINDOW)
-                list_loss.append(loss_val)
 
         ################################
         ### Rendering and Save Video ###
@@ -169,11 +168,10 @@ def demo5_ComparePolicies(setting):
         video_writer1.write_image_frame(img_bayes_uint8)
 
         if i%N_LOGGING_PERIOD == 0:
-
-            if i > N_TRAIN_WINDOW:
-                avg_loss = np.mean(np.array(list_loss))
-                list_loss = []
-                writer.add_scalar('dynautoenc/loss', avg_loss, i)
+        
+            avg_loss = np.mean(np.array(list_loss))
+            list_loss = []
+            writer.add_scalar('dynautoenc/loss', avg_loss, i)
 
             avg_reward = np.mean(np.array(list_rewards))
             list_rewards = []
@@ -199,12 +197,15 @@ def demo5_ComparePolicies(setting):
     
 if __name__ == "__main__":
 
+    # Environment
+    env = FireEnvironment(64, 64, for_eval=True)
+
     setting = {}
     setting.update({'name':'demo5'})
         
-    list_policy_types = ['Random', 'Adaptive', 'Default', 'Act0', 'Act1', 'Act2', 'Act3']
+    list_policy_types = ['Random', 'Default', 'Act0', 'Act1', 'Act2', 'Act3']
 
     for policy_type in list_policy_types:
         setting.update({'policy_type':policy_type})
-        demo5_ComparePolicies(setting)
+        demo5_ComparePolicies(setting, env)
     

@@ -7,7 +7,7 @@ torch.manual_seed(1234)
 
 
 import numpy as np
-import cv2
+import cv2, tqdm
 
 import seaborn as sns
 
@@ -18,10 +18,13 @@ from params import ACTION_SET, TRANSITION_CNN_LAYER_WT, DEVICE, OBSERVTAION_MATR
 
 N_ACTION = len(ACTION_SET)
 
+from memory import SingleTrajectoryBuffer
+
+T_EVAL = 20000 + 1000
 
 class FireEnvironment:
 
-    def __init__(self, w, h):
+    def __init__(self, w, h, for_eval=False):
 
         self.map_width = w
         self.map_height = h
@@ -60,6 +63,16 @@ class FireEnvironment:
 
         ### Previous mask for reward calculation ###
         self.prev_state = torch.zeros_like(self.realization_state)
+
+        ### Save trajectory for evaluation ###
+        self.t = 0
+        if for_eval:
+            self.if_use_saved_eval = False
+            self.memory_evaluation_state = []
+            self.memory_evaluation_observation = []
+            self.save_evaluation_memory()
+            self.t = 0
+        self.if_use_saved_eval = for_eval
 
 
     def sample_gridmap_from_fire_dist(self, fire_dist):
@@ -104,20 +117,36 @@ class FireEnvironment:
 
 
     def reset(self):
-        ### Resample using the initial distribution ###
-        self.realization_state = self.sample_gridmap_from_fire_dist(self.init_prob_dist)
-        self.observed_state = self.observe()
-        self.masked_observation = torch.zeros_like(self.observed_state)
+        self.t = 0
+        if self.if_use_saved_eval:
+
+            self.masked_observation = torch.zeros_like(self.observed_state)
+            self.realization_state = self.memory_evaluation_state[0]
+            self.observed_state = self.memory_evaluation_observation[0]
+
+        else:
+            ### Resample using the initial distribution ###
+            self.realization_state = self.sample_gridmap_from_fire_dist(self.init_prob_dist)
+            self.observed_state = self.observe()
+            self.masked_observation = torch.zeros_like(self.observed_state)
+
+
         return self.masked_observation, self.observed_state, self.realization_state
 
     def step(self, obs_mask=None):
         with torch.no_grad():
-            state = torch.unsqueeze(self.realization_state, 0).to(DEVICE)
-            prob_dist = self.transition(state).squeeze()
-            prob_dist = prob_dist / torch.sum(prob_dist, 0)
-            prob_to_sample = prob_dist.clone().detach()
-            self.realization_state = self.sample_gridmap_from_fire_dist(prob_to_sample)
-            self.observed_state = self.observe()
+            if self.if_use_saved_eval:
+                self.realization_state = torch.Tensor(self.memory_evaluation_state[self.t]).to(DEVICE)
+                self.observed_state = torch.Tensor(self.memory_evaluation_observation[self.t]).to(DEVICE)
+
+            else:
+                state = torch.unsqueeze(self.realization_state, 0).to(DEVICE)
+                prob_dist = self.transition(state).squeeze()
+                prob_dist = prob_dist / torch.sum(prob_dist, 0)
+                prob_to_sample = prob_dist.clone().detach()
+                self.realization_state = self.sample_gridmap_from_fire_dist(prob_to_sample)
+                self.observed_state = self.observe()
+                del state, prob_dist, prob_to_sample
 
             ## Maks observation 
             #obs_mask = torch.FloatTensor(obs_mask).unsqueeze(-1).to(DEVICE)
@@ -151,8 +180,10 @@ class FireEnvironment:
 
             #print('reward:', reward, 'new_fire_count', info['new_fire_count'])
 
-            del new_fire, state, prob_dist, prob_to_sample
+            del new_fire
             torch.cuda.empty_cache()
+
+        self.t += 1
 
         return self.masked_observation, self.observed_state, self.realization_state, reward, info
 
@@ -169,3 +200,19 @@ class FireEnvironment:
         onehot_obs_map.scatter_(2, observed_map, 1)
         
         return onehot_obs_map
+
+
+    def save_evaluation_memory(self):
+
+        for t in tqdm.tqdm(range(T_EVAL)):
+            _, observation, state, _, _ = self.step()
+            self.memory_evaluation_observation.append(observation.data.cpu().numpy())
+            self.memory_evaluation_state.append(state.data.cpu().numpy())
+
+
+if __name__ == "__main__":
+    env = FireEnvironment(64,64, True)
+
+    for t in range(1000):
+        env.step()
+        env.render()

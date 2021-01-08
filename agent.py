@@ -10,6 +10,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+torch.manual_seed(1234)
+
+
 from params import TRANSITION_CNN_LAYER_WT, DEVICE, ACTION_SET, OBSERVTAION_MATRIX
 from model import DynamicAutoEncoderNetwork
 
@@ -192,8 +195,8 @@ class DynamicAutoEncoder:
         return img_resized
 
     
-    def update(self, memory, n_batch, n_window):
-        self.model.train()
+    def update(self, memory, n_batch, n_window, update=True):
+        
 
         batch_obs_stream, batch_state_stream, batch_mask_stream = memory.sample(n_batch, n_window)
         batch_pred_obs_stream = []
@@ -205,75 +208,79 @@ class DynamicAutoEncoder:
         O = O.unsqueeze(0).unsqueeze(0).repeat(self.grid_size[0], self.grid_size[1], 1, 1)
         O_bat = O.unsqueeze(0).repeat(n_window, 1, 1, 1, 1)
 
-        ### Foward the observation through the model ###
-        for i in range(n_batch):
-            ### Encoding and Likelihood ###
-            obs_stream = torch.stack(batch_obs_stream[i]).float()
-            batch_tgt_obs_stream.append(obs_stream.unsqueeze(-1))
-            obs_stream = obs_stream.squeeze().permute(0, 3, 1, 2).contiguous()
-            x_stream = self.model.encoder(obs_stream)
+        if update:
+            ### Foward the observation through the model ###
+            self.model.train()
+            for i in range(n_batch):
+                ### Encoding and Likelihood ###
+                obs_stream = torch.stack(batch_obs_stream[i]).float()
+                batch_tgt_obs_stream.append(obs_stream.unsqueeze(-1))
+                obs_stream = obs_stream.squeeze().permute(0, 3, 1, 2).contiguous()
+                x_stream = self.model.encoder(obs_stream)
+                
+
+                ### RNN State Predictor ###
+                h0 = torch.rand(1, 1, self.gru_hidden_dim).to(DEVICE)
+                output, h_n = self.model.rnn_layer(x_stream.unsqueeze(0), h0)
+
+                ### Decoding ###
+                output = output.squeeze().unsqueeze(-1).unsqueeze(-1)
+                pred_state_est_stream = self.model.decoder(output)
+                pred_state_est_stream = pred_state_est_stream[:, :, :self.grid_size[0], :self.grid_size[1]] # Crop Image
+                pred_state_est_stream = F.softmax(pred_state_est_stream, 1)
+                pred_state_est_stream = pred_state_est_stream.permute(0,2,3,1).contiguous().unsqueeze(-1)
+                pred_obs_stream = torch.matmul(O_bat, pred_state_est_stream)
+                batch_pred_obs_stream.append(pred_obs_stream)
+
+                ### Mask ###
+                mask_stream = torch.stack(batch_mask_stream[i])
+                batch_tgt_mask_stream.append(mask_stream.unsqueeze(-1).unsqueeze(-1))
+
+            batch_pred_obs_stream = torch.stack(batch_pred_obs_stream)
+            batch_tgt_obs_stream = torch.stack(batch_tgt_obs_stream)
+            batch_tgt_mask_stream = torch.stack(batch_tgt_mask_stream)
+
+            #### Translate one step the target for calculating loss in prediction
+            tgt_mask_obs = batch_tgt_mask_stream[:, 1:, :, :, :]
+            tgt_grid_obs = batch_tgt_obs_stream[:, 1:, :, :, :]
+            pred_grid_obs = batch_pred_obs_stream[:, :-1, :, :, :]
+
+            mask_tgt_grid_obs = tgt_grid_obs*tgt_mask_obs
+            mask_pred_grid_obs = pred_grid_obs*tgt_mask_obs
             
 
-            ### RNN State Predictor ###
-            h0 = torch.rand(1, 1, self.gru_hidden_dim).to(DEVICE)
-            output, h_n = self.model.rnn_layer(x_stream.unsqueeze(0), h0)
+            #### Cross Entropy Loss ###
+            loss1 = torch.sum(-(mask_tgt_grid_obs*torch.log(mask_pred_grid_obs + EPS)+(1-mask_tgt_grid_obs)*torch.log(1-mask_pred_grid_obs + EPS)))/torch.sum(tgt_mask_obs)
 
-            ### Decoding ###
-            output = output.squeeze().unsqueeze(-1).unsqueeze(-1)
-            pred_state_est_stream = self.model.decoder(output)
-            pred_state_est_stream = pred_state_est_stream[:, :, :self.grid_size[0], :self.grid_size[1]] # Crop Image
-            pred_state_est_stream = F.softmax(pred_state_est_stream, 1)
-            pred_state_est_stream = pred_state_est_stream.permute(0,2,3,1).contiguous().unsqueeze(-1)
-            pred_obs_stream = torch.matmul(O_bat, pred_state_est_stream)
-            batch_pred_obs_stream.append(pred_obs_stream)
+            ### Ordering property loss ###
+            #O = O[0][0]
+            #loss3 = torch.sign(O[0][1] -  O[0][0]) + torch.sign(O[0][2] -  O[2][2])
 
-            ### Mask ###
-            mask_stream = torch.stack(batch_mask_stream[i])
-            batch_tgt_mask_stream.append(mask_stream.unsqueeze(-1).unsqueeze(-1))
+            ### Shannon entropy loss ###
+            p = pred_grid_obs
+            log_p = torch.log(p)
+            loss2 = -torch.mean(p*log_p)
 
-        batch_pred_obs_stream = torch.stack(batch_pred_obs_stream)
-        batch_tgt_obs_stream = torch.stack(batch_tgt_obs_stream)
-        batch_tgt_mask_stream = torch.stack(batch_tgt_mask_stream)
+            loss = loss1 # + 0.001*loss3
 
-        #### Translate one step the target for calculating loss in prediction
-        tgt_mask_obs = batch_tgt_mask_stream[:, 1:, :, :, :]
-        tgt_grid_obs = batch_tgt_obs_stream[:, 1:, :, :, :]
-        pred_grid_obs = batch_pred_obs_stream[:, :-1, :, :, :]
+            
 
-        mask_tgt_grid_obs = tgt_grid_obs*tgt_mask_obs
-        mask_pred_grid_obs = pred_grid_obs*tgt_mask_obs
-        
-
-        #### Cross Entropy Loss ###
-        loss1 = torch.sum(-(mask_tgt_grid_obs*torch.log(mask_pred_grid_obs + EPS)+(1-mask_tgt_grid_obs)*torch.log(1-mask_pred_grid_obs + EPS)))/torch.sum(tgt_mask_obs)
-
-        ### Ordering property loss ###
-        #O = O[0][0]
-        #loss3 = torch.sign(O[0][1] -  O[0][0]) + torch.sign(O[0][2] -  O[2][2])
-
-        ### Shannon entropy loss ###
-        p = pred_grid_obs
-        log_p = torch.log(p)
-        loss2 = -torch.mean(p*log_p)
-
-        loss = loss1 # + 0.001*loss3
-
-        
-
-        ### Update Model ###
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+            ### Update Model ###
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
 
 
-        loss_val = loss.item()
-        loss1_val = loss1.item()
-        loss2_val = loss2.item()
+            loss_val = loss.item()
+            loss1_val = loss1.item()
+            loss2_val = loss2.item()
 
-        del batch_obs_stream, batch_state_stream, batch_pred_obs_stream, batch_tgt_obs_stream, loss, loss1, loss2
-        torch.cuda.empty_cache()
+            del batch_obs_stream, batch_state_stream, batch_pred_obs_stream, batch_tgt_obs_stream, loss, loss1, loss2
+            torch.cuda.empty_cache()
 
-        return loss_val, loss1_val, loss2_val, O_np_val
+            return loss_val, loss1_val, loss2_val, O_np_val
+
+        return 0, 0, 0, 0
 
 
 class ImageStreamWriter:
@@ -286,8 +293,6 @@ class ImageStreamWriter:
 
     def close(self):
         self.writer.release()
-
-
 
 
 def render(window_name, image, wait_time):

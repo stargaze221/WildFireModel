@@ -11,6 +11,8 @@ class SingleTrajectoryBuffer:
         self.state_memory = deque(maxlen=n_window_size)
         self.mask_memory = deque(maxlen=n_window_size)
 
+        self.t = 0
+
     def add(self, obs_grid_map, state_grid_map, mask_map):
         self.obs_memory.append(obs_grid_map)
         self.state_memory.append(state_grid_map)

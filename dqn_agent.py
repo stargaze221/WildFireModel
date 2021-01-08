@@ -90,7 +90,7 @@ class Agent():
     ########################################################
     # STEP() method
     #
-    def step(self, state, action, reward, next_state, done):
+    def step(self, state, action, reward, next_state, done, update=True):
         # Save experience in replay memory
         self.memory.add(state, action, reward, next_state, done)
         
@@ -100,7 +100,8 @@ class Agent():
             # If enough samples are available in memory, get random subset and learn
             if len(self.memory) > self.batch_size:
                 experiences = self.memory.sample()
-                self.learn(experiences, self.gamma)
+                if update:
+                    self.learn(experiences, self.gamma)
 
 
 	########################################################

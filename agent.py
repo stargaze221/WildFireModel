@@ -302,7 +302,7 @@ def render(window_name, image, wait_time):
 
 
 class Vehicle:
-    def __init__(self, n_time_windows=512, grid_size=(64, 64), planner_type='Default'):
+    def __init__(self, n_time_windows=128, grid_size=(64, 64), planner_type='Default'):
 
         self.grid_size = grid_size
 

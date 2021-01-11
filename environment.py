@@ -20,7 +20,7 @@ N_ACTION = len(ACTION_SET)
 
 from memory import SingleTrajectoryBuffer
 
-T_EVAL = 20000 + 1000
+T_EVAL = 30000 + 1000
 
 class FireEnvironment:
 
@@ -157,7 +157,8 @@ class FireEnvironment:
                 self.masked_observation = self.observed_state
 
             # New fire grid
-            new_fire = torch.clamp(self.realization_state[2] - self.prev_state[2], 0, 1)
+            #new_fire = torch.clamp(self.realization_state[2] - self.prev_state[2], 0, 1)
+            new_fire = self.realization_state[2]  #- self.prev_state[2], 0, 1)
 
             '''
             print('realization_state[2]:', self.realization_state[2].size())

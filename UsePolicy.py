@@ -26,7 +26,7 @@ SETTING = {}
 SETTING.update({'lr_optim_dynautoenc':LR_ESTIMATOR})
 SETTING.update({'betas_optim_dynautoenc':BETAS})
 
-N_TOTAL_TIME_STEPS =  30000
+N_TOTAL_TIME_STEPS =  2000
 
 N_LOGGING_PERIOD = 200
 N_RENDER_PERIOD = 1
@@ -34,30 +34,29 @@ N_RENDER_PERIOD = 1
 N_TRAIN_WINDOW = 1000
 N_TRAIN_BATCH = 1
 N_MEMORY_SIZE = 5000
-N_TRAIN_WAIT = 1000
+
 
 FPS=10
 
 def demo5_ComparePolicies(setting, Env):
 
-    n_sample = 2048
+    n_sample = 100
 
     # Vehicle to generate observation mask
-    vehicle = Vehicle(n_time_windows=64, grid_size=(64,64), planner_type='Default')
+    vehicle = Vehicle(n_time_windows=512, grid_size=(64,64), planner_type='Default')
     # Trainer and Estimator
     dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
-
+    dyn_autoencoder.load_the_model(29999, 'demo4')
     ### DQN agent  
     dqn_agent = DQN_Agent(state_size=16, action_size=4, replay_memory_size=1000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.01, update_rate=1, seed=0)
+    dqn_agent.load_the_model(29999, 'demo4')
 
     # Train Data Buffer
     memory = SingleTrajectoryBuffer(N_MEMORY_SIZE)
     
     # Video Writier
-    '''
     video_f_name = 'UsePlanner'+ '_' + setting['name'] + '_' + setting['policy_type'] + '.avi'
     video_writer1 = ImageStreamWriter(video_f_name, FPS, image_size=(1200,820))
-    '''
 
     # Train Iteration Logger
     from torch.utils.tensorboard import SummaryWriter
@@ -75,21 +74,14 @@ def demo5_ComparePolicies(setting, Env):
     ########################################
     ### Interacting with the Environment ###
     ########################################
+    mask_obs, obs, state = env.reset()
+    state_est_grid = dyn_autoencoder.u_k
 
     ### Loss Monitors ###
     list_rewards = []
     list_new_fire_count = []
     list_action = []
     list_loss = []
-
-    ### Filling the Data Buffer ###
-    for i in tqdm.tqdm(range(N_TRAIN_WAIT)):         
-        map_visit_mask, img_resized =  vehicle.full_mask()
-        mask_obs, obs, state, reward, info = env.step(map_visit_mask)
-        memory.add(mask_obs.detach().long(), state.detach().long(), map_visit_mask.detach().long())
-
-    mask_obs, obs, state = env.reset()
-    state_est_grid = dyn_autoencoder.u_k
 
     for i in tqdm.tqdm(range(N_TOTAL_TIME_STEPS)):
 
@@ -100,10 +92,14 @@ def demo5_ComparePolicies(setting, Env):
           
         
         ### Collect Data from the Env. ###
+
         # Plan a trajectory
         policy_type = setting['policy_type']
         if policy_type == 'Default':
-            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)  
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)
+
+        elif policy_type == 'Adaptive':
+            map_visit_mask, img_resized = vehicle.plan_a_trajectory(state_est_grid, n_sample, action)
 
         elif policy_type == 'Random':
             action = 777
@@ -139,13 +135,13 @@ def demo5_ComparePolicies(setting, Env):
         list_rewards.append(reward)
         list_new_fire_count.append(info['new_fire_count'])
 
-        
-        update = True
-        #### Update the reinforcement learning agent and Dyn Auto Enc ###
-        if policy_type != 'Random':
-            dqn_agent.step(h_k, action, reward, h_kp1, False, update)
-            loss_val, loss_val_cross, loss_val_ent, O_np_val =  dyn_autoencoder.update(memory, N_TRAIN_BATCH, N_TRAIN_WINDOW, update)
-            list_loss.append(loss_val)
+        if policy_type == 'Adaptive':
+            update = True
+        else:
+            update = False
+
+        #### Update the reinforcement learning agent ###
+        dqn_agent.step(h_k, action, reward, h_kp1, False, update)
 
 
         ################################
@@ -167,24 +163,23 @@ def demo5_ComparePolicies(setting, Env):
         render('Dynamic Auto Encoder', img_bayes_uint8, 1)
 
         # Save video #
-        #video_writer1.write_image_frame(img_bayes_uint8)
+        video_writer1.write_image_frame(img_bayes_uint8)
 
         if i%N_LOGGING_PERIOD == 0:
 
-            avg_reward = np.mean(np.array(list_rewards))
-            list_rewards = []
-            writer.add_scalar('perform/rewards', avg_reward, i)
-
-            avg_new_fire_count = np.mean(np.array(list_new_fire_count))
-            list_new_fire_count = []
-            writer.add_scalar('perform/new_fire_counts', avg_new_fire_count, i)
-            writer.add_scalar('perform/pc_coverd_new_fire', avg_reward/avg_new_fire_count, i)
-
-            if policy_type != 'Random':
-
+            if i > N_TRAIN_WINDOW:
                 avg_loss = np.mean(np.array(list_loss))
                 list_loss = []
                 writer.add_scalar('dynautoenc/loss', avg_loss, i)
+
+                avg_reward = np.mean(np.array(list_rewards))
+                list_rewards = []
+                writer.add_scalar('perform/rewards', avg_reward, i)
+
+                avg_new_fire_count = np.mean(np.array(list_new_fire_count))
+                list_new_fire_count = []
+                writer.add_scalar('perform/new_fire_counts', avg_new_fire_count, i)
+                writer.add_scalar('perform/pc_coverd_new_fire', avg_reward/avg_new_fire_count, i)
 
                 action_0_count = list_action.count(0)
                 action_1_count = list_action.count(1)
@@ -197,17 +192,7 @@ def demo5_ComparePolicies(setting, Env):
                 writer.add_scalar('action_count/3', action_3_count/len(list_action), i)
                 list_action = []
 
-                writer.add_scalar('obs_state0/o00', O_np_val[0][0], i)
-                writer.add_scalar('obs_state1/o01', O_np_val[0][1], i)
-                writer.add_scalar('obs_state2/o02', O_np_val[0][2], i)
-                writer.add_scalar('obs_state0/o10', O_np_val[1][0], i)
-                writer.add_scalar('obs_state1/o11', O_np_val[1][1], i)
-                writer.add_scalar('obs_state2/o12', O_np_val[1][2], i)
-                writer.add_scalar('obs_state0/o20', O_np_val[2][0], i)
-                writer.add_scalar('obs_state1/o21', O_np_val[2][1], i)
-                writer.add_scalar('obs_state2/o22', O_np_val[2][2], i)
-
-    #video_writer1.close()
+    video_writer1.close()
     
 if __name__ == "__main__":
 
@@ -215,10 +200,9 @@ if __name__ == "__main__":
     env = FireEnvironment(64, 64, for_eval=True)
 
     setting = {}
-    setting.update({'name':'demo5_let_us_see_fire_instead_of_new_fire'})
+    setting.update({'name':'demo5'})
         
-    list_policy_types = ['Random', 'Default', 'Act0', 'Act1', 'Act2', 'Act3']
-    #list_policy_types = ['Default']
+    list_policy_types = ['Random', 'Adaptive'] #, 'Default', 'Act0', 'Act1', 'Act2', 'Act3']
 
     for policy_type in list_policy_types:
         setting.update({'policy_type':policy_type})

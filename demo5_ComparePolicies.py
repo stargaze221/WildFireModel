@@ -19,7 +19,7 @@ from environment import FireEnvironment
 from memory import SingleTrajectoryBuffer
 import tqdm, random
 
-LR_ESTIMATOR = 0.001
+LR_ESTIMATOR = 0.0001
 BETAS = (0.5, 0.9)
 
 SETTING = {}
@@ -45,10 +45,10 @@ def demo5_ComparePolicies(setting, Env):
     # Vehicle to generate observation mask
     vehicle = Vehicle(n_time_windows=64, grid_size=(64,64), planner_type='Default')
     # Trainer and Estimator
-    dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
+    dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=4, gru_hidden_dim=4)
 
     ### DQN agent  
-    dqn_agent = DQN_Agent(state_size=16, action_size=4, replay_memory_size=1000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.01, update_rate=1, seed=0)
+    dqn_agent = DQN_Agent(state_size=4, action_size=4, replay_memory_size=1000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.01, update_rate=1, seed=0)
 
     # Train Data Buffer
     memory = SingleTrajectoryBuffer(N_MEMORY_SIZE)
@@ -215,10 +215,10 @@ if __name__ == "__main__":
     env = FireEnvironment(64, 64, for_eval=True)
 
     setting = {}
-    setting.update({'name':'demo5_let_us_see_fire_instead_of_new_fire'})
+    setting.update({'name':'demo5_let_us_see_fire_instead_of_new_fire_dim4'})
         
     list_policy_types = ['Random', 'Default', 'Act0', 'Act1', 'Act2', 'Act3']
-    #list_policy_types = ['Default']
+    
 
     for policy_type in list_policy_types:
         setting.update({'policy_type':policy_type})

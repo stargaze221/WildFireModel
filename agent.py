@@ -63,7 +63,6 @@ class BaysianEstimator(nn.Module):
     def Bayesian_update(self, obs):
         '''
         Beysian recursive update using the following formula
-
                    B u_k
         u_k+1 = P --------
                    b u_k
@@ -302,7 +301,7 @@ def render(window_name, image, wait_time):
 
 
 class Vehicle:
-    def __init__(self, n_time_windows=512, grid_size=(64, 64), planner_type='Default'):
+    def __init__(self, n_time_windows=128, grid_size=(64, 64), planner_type='Default'):
 
         self.grid_size = grid_size
 
@@ -389,7 +388,6 @@ class Vehicle:
             positions_onehot = i_indice_onehot * j_indice_onehot
             del trajectories, position_state, action_sum, i_indice_onehot, j_indice_onehot
             torch.cuda.empty_cache()
-
             map_visted_binary = torch.clamp(torch.sum(positions_onehot, dim=0), 0, 1).float()
             '''
             
@@ -465,14 +463,15 @@ class Vehicle:
 
 
             
-
-
-if __name__ == "__main__":
+def main():
     vehicle = Vehicle()
-
     n_sample = 100
     action_param = 3
 
     stat_est_map = F.softmax(torch.rand(64, 64, 3, 1),2).to(DEVICE)
 
-    vehicle.new_trajectory(stat_est_map, n_sample, action_param)
+    vehicle.new_trajectory(stat_est_map, n_sample, action_param)   
+
+
+if __name__ == "__main__":
+    main()

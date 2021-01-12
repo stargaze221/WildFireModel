@@ -20,14 +20,15 @@ from memory import SingleTrajectoryBuffer
 import tqdm, random
 from torch.utils.tensorboard import SummaryWriter
 
-LR_ESTIMATOR = 0.001
+
+LR_ESTIMATOR = 0.0001
 BETAS = (0.5, 0.9)
 
 SETTING = {}
 SETTING.update({'lr_optim_dynautoenc':LR_ESTIMATOR})
 SETTING.update({'betas_optim_dynautoenc':BETAS})
 
-N_TOTAL_TIME_STEPS =  20000
+N_TOTAL_TIME_STEPS =  30000
 
 N_LOGGING_PERIOD = 200
 N_RENDER_PERIOD = 1
@@ -41,22 +42,24 @@ FPS=10
 
 def demo5_ComparePolicies(setting, env):
 
-    n_sample = 100
+    n_sample = 2048
 
     # Vehicle to generate observation mask
-    vehicle = Vehicle(n_time_windows=512, grid_size=(64,64), planner_type='Default')
+    vehicle = Vehicle(n_time_windows=64, grid_size=(64,64), planner_type='Default')
     # Trainer and Estimator
-    dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=16, gru_hidden_dim=16)
+    dyn_autoencoder = DynamicAutoEncoder(SETTING, grid_size = (env.map_width, env.map_height), n_state=3, n_obs=3, encoding_dim=4, gru_hidden_dim=4)
 
     ### DQN agent  
-    dqn_agent = DQN_Agent(state_size=16, action_size=4, replay_memory_size=1000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.01, update_rate=1, seed=0)
+    dqn_agent = DQN_Agent(state_size=4, action_size=4, replay_memory_size=1000, batch_size=64, gamma=0.99, learning_rate=0.01, target_tau=0.01, update_rate=1, seed=0)
 
     # Train Data Buffer
     memory = SingleTrajectoryBuffer(N_MEMORY_SIZE)
     
     # Video Writier
+    '''
     video_f_name = 'UsePlanner'+ '_' + setting['name'] + '_' + setting['policy_type'] + '.avi'
     video_writer1 = ImageStreamWriter(video_f_name, FPS, image_size=(1200,820))
+    '''
 
     # Train Iteration Logger
 
@@ -166,13 +169,9 @@ def demo5_ComparePolicies(setting, env):
         render('Dynamic Auto Encoder', img_bayes_uint8, 1)
 
         # Save video #
-        video_writer1.write_image_frame(img_bayes_uint8)
+        #video_writer1.write_image_frame(img_bayes_uint8)
 
         if i%N_LOGGING_PERIOD == 0:
-        
-            avg_loss = np.mean(np.array(list_loss))
-            list_loss = []
-            writer.add_scalar('dynautoenc/loss', avg_loss, i)
 
             avg_reward = np.mean(np.array(list_rewards))
             list_rewards = []
@@ -183,29 +182,45 @@ def demo5_ComparePolicies(setting, env):
             writer.add_scalar('perform/new_fire_counts', avg_new_fire_count, i)
             writer.add_scalar('perform/pc_coverd_new_fire', avg_reward/avg_new_fire_count, i)
 
-            action_0_count = list_action.count(0)
-            action_1_count = list_action.count(1)
-            action_2_count = list_action.count(2)
-            action_3_count = list_action.count(3)
+            if policy_type != 'Random':
 
-            writer.add_scalar('action_count/0', action_0_count/len(list_action), i)
-            writer.add_scalar('action_count/1', action_1_count/len(list_action), i)
-            writer.add_scalar('action_count/2', action_2_count/len(list_action), i)
-            writer.add_scalar('action_count/3', action_3_count/len(list_action), i)
-            list_action = []
+                avg_loss = np.mean(np.array(list_loss))
+                list_loss = []
+                writer.add_scalar('dynautoenc/loss', avg_loss, i)
 
-    video_writer1.close()
+                action_0_count = list_action.count(0)
+                action_1_count = list_action.count(1)
+                action_2_count = list_action.count(2)
+                action_3_count = list_action.count(3)
+
+                writer.add_scalar('action_count/0', action_0_count/len(list_action), i)
+                writer.add_scalar('action_count/1', action_1_count/len(list_action), i)
+                writer.add_scalar('action_count/2', action_2_count/len(list_action), i)
+                writer.add_scalar('action_count/3', action_3_count/len(list_action), i)
+                list_action = []
+
+                writer.add_scalar('obs_state0/o00', O_np_val[0][0], i)
+                writer.add_scalar('obs_state1/o01', O_np_val[0][1], i)
+                writer.add_scalar('obs_state2/o02', O_np_val[0][2], i)
+                writer.add_scalar('obs_state0/o10', O_np_val[1][0], i)
+                writer.add_scalar('obs_state1/o11', O_np_val[1][1], i)
+                writer.add_scalar('obs_state2/o12', O_np_val[1][2], i)
+                writer.add_scalar('obs_state0/o20', O_np_val[2][0], i)
+                writer.add_scalar('obs_state1/o21', O_np_val[2][1], i)
+                writer.add_scalar('obs_state2/o22', O_np_val[2][2], i)
+
+    #video_writer1.close()
     
-    
-    
+
 def main():
     # Environment
     env = FireEnvironment(64, 64, for_eval=True)
 
     setting = {}
-    setting.update({'name':'demo5'})
+    setting.update({'name':'demo5_let_us_see_fire_instead_of_new_fire_dim4'})
         
     list_policy_types = ['Random', 'Default', 'Act0', 'Act1', 'Act2', 'Act3']
+    
 
     for policy_type in list_policy_types:
         setting.update({'policy_type':policy_type})
@@ -214,4 +229,3 @@ def main():
     
 if __name__ == "__main__":
     main()
-    

@@ -15,7 +15,7 @@ from agent import DynamicAutoEncoder, render, Vehicle, ImageStreamWriter
 from environment import FireEnvironment
 from memory import SingleTrajectoryBuffer
 import tqdm, random
-
+from torch.utils.tensorboard import SummaryWriter
  
 
 LR_ESTIMATOR = 0.001
@@ -51,7 +51,7 @@ def demo3_SysID(setting):
     # Train Data Buffer
     memory = SingleTrajectoryBuffer(N_MEMORY_SIZE)
     # Train Iteration Logger
-    from torch.utils.tensorboard import SummaryWriter
+
     writer = SummaryWriter()
     # Video Writier
     video_writer1 = ImageStreamWriter('RandomPathSysId.avi', FPS, image_size=(1200,820))
@@ -158,9 +158,11 @@ def demo3_SysID(setting):
     video_writer1.close()
 
 
-    
-if __name__ == "__main__":
-
+def main():
     setting = {}
     setting.update({'name':'demo3'})
     demo3_SysID(setting)
+
+
+if __name__ == "__main__":
+    main()

@@ -15,7 +15,7 @@ from dqn_agent import Agent as DQN_Agent
 from environment import FireEnvironment
 from memory import SingleTrajectoryBuffer
 import tqdm, random
-
+from torch.utils.tensorboard import SummaryWriter
  
 
 LR_ESTIMATOR = 0.001
@@ -52,7 +52,7 @@ def demo4_LearningPathPlanning(setting):
     # Train Data Buffer
     memory = SingleTrajectoryBuffer(N_MEMORY_SIZE)
     # Train Iteration Logger
-    from torch.utils.tensorboard import SummaryWriter
+
     writer = SummaryWriter()
     # Video Writier
     video_writer1 = ImageStreamWriter('LearningPlanner.avi', FPS, image_size=(1200,820))
@@ -192,9 +192,13 @@ def demo4_LearningPathPlanning(setting):
     video_writer1.close()
 
 
-    
-if __name__ == "__main__":
 
+def main():
     setting = {}
     setting.update({'name':'demo4'})
     demo4_LearningPathPlanning(setting)
+
+
+    
+if __name__ == "__main__":
+    main()

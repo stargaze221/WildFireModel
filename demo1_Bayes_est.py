@@ -55,5 +55,11 @@ def model_based_recursive_estimation():
     video_writer0.close()
     video_writer1.close()
 
-if __name__ == "__main__":
+
+def main():
     model_based_recursive_estimation()
+
+
+
+if __name__ == "__main__":
+    main()

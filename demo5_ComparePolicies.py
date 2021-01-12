@@ -18,6 +18,7 @@ from dqn_agent import Agent as DQN_Agent
 from environment import FireEnvironment
 from memory import SingleTrajectoryBuffer
 import tqdm, random
+from torch.utils.tensorboard import SummaryWriter
 
 LR_ESTIMATOR = 0.001
 BETAS = (0.5, 0.9)
@@ -38,7 +39,7 @@ N_TRAIN_WAIT = 1000
 
 FPS=10
 
-def demo5_ComparePolicies(setting, Env):
+def demo5_ComparePolicies(setting, env):
 
     n_sample = 100
 
@@ -58,7 +59,7 @@ def demo5_ComparePolicies(setting, Env):
     video_writer1 = ImageStreamWriter(video_f_name, FPS, image_size=(1200,820))
 
     # Train Iteration Logger
-    from torch.utils.tensorboard import SummaryWriter
+
     writer = SummaryWriter()
 
     # Add concat. text
@@ -195,8 +196,9 @@ def demo5_ComparePolicies(setting, Env):
 
     video_writer1.close()
     
-if __name__ == "__main__":
-
+    
+    
+def main():
     # Environment
     env = FireEnvironment(64, 64, for_eval=True)
 
@@ -208,4 +210,8 @@ if __name__ == "__main__":
     for policy_type in list_policy_types:
         setting.update({'policy_type':policy_type})
         demo5_ComparePolicies(setting, env)
+    
+    
+if __name__ == "__main__":
+    main()
     

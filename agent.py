@@ -1,8 +1,16 @@
 '''
+# agent.py
+# author: Hyung Jin
+#date: 01/13/2020
+
 List of Agents:
 - BaysianEstimator: Model based state estimation (that needs the true model parameters).
 - 
 '''
+
+
+#Modules to import
+
 import numpy as np
 import cv2, os, random
 
@@ -21,8 +29,32 @@ from model import DynamicAutoEncoderNetwork
 IF_PRINT = False
 EPS = 1e-10 # To avoid NAN in Log function.
 
+
+'''
+#Notes: 
+'''
+
+
+'''
+class: BayesianEstimator
+inherits: nn.Module 
+Description: 
+'''
 class BaysianEstimator(nn.Module):
 
+    '''
+    Function: Constructor for BayesianEstimator 
+    Params:
+        grid_size: size of the grid
+        n_obs: number of observations 
+        n_state: number of states
+    
+    return: none 
+    
+    1. Inherits from nn.module 
+    2. Set up the grid size, state transition, observation and estimation 
+        matrices 
+    '''
     def __init__(self, grid_size, n_obs, n_state):
         super(BaysianEstimator, self).__init__()
 
@@ -46,6 +78,15 @@ class BaysianEstimator(nn.Module):
         self.state_est = (torch.ones(grid_size[0], grid_size[1], 3)/3).to(DEVICE)
         
 
+    '''
+    Function: output_image
+    Params:
+        size: size of the image 
+
+    return: the image state
+    
+    1. returns the image of the states
+    '''
     def output_image(self, size=(1200,400)):
         img = self.state_est.data.cpu().numpy().squeeze()
 
@@ -59,6 +100,22 @@ class BaysianEstimator(nn.Module):
 
         return img_resized
 
+
+
+    '''
+    Function: Bayesian_update 
+    Params:
+        obs: observation 
+        
+    return: state estimation 
+    
+
+    1. Bayesian recursive update using the formula: 
+                   B u_k
+        u_k+1 = P --------
+                   b u_k
+                      
+    '''
 
     def Bayesian_update(self, obs):
         '''
@@ -103,9 +160,28 @@ class BaysianEstimator(nn.Module):
 
 
 
-
+'''
+class: DynamicAutoEncoder
+inherits: none 
+Description: 
+'''
 class DynamicAutoEncoder:
 
+    '''
+    Function: Constructor for DynamicAutoEncoder
+    Params:
+        setting: settings for torch
+        grid_size: size of the grid
+        n_obs: number of observations 
+        n_state: number of states
+        encoding_dim: dimensions of the encoder 
+        gru_hidden_dim: dimensions of the hidden layer
+    
+    return: none 
+    
+    1. sets up the appropriate objects and their values for the class
+        matrices 
+    '''
     def __init__(self, setting, grid_size, n_state, n_obs, encoding_dim, gru_hidden_dim):
 
         self.model = DynamicAutoEncoderNetwork(grid_size, n_state, n_obs, encoding_dim, gru_hidden_dim).to(DEVICE)
@@ -122,7 +198,16 @@ class DynamicAutoEncoder:
         self.h_k = torch.rand(1, 1, self.gru_hidden_dim).to(DEVICE)
 
         
+    '''
+    Function: save_the_model
+    Params:
+        iteration: iteration 
+        f_name: name of the file to be appended to save as
 
+    return: none
+    
+    1. Saves the model into a file
+    '''
     def save_the_model(self, iteration, f_name):
         if not os.path.exists('./save/dynautoenc/'):
             os.makedirs('./save/dynautoenc/')
@@ -131,12 +216,34 @@ class DynamicAutoEncoder:
         print('Model Saved')
 
 
+
+    '''
+    Function: load_the_model
+    Params:
+        iteration: iteration 
+        f_name: name of the file to be appended to load model
+
+    return: none
+    
+    1. loads the model from a file
+    '''
     def load_the_model(self, iteration, f_name):
         f_path = './save/dynautoenc/dynautoenc_network_param_' +  str(iteration) + '_' + f_name + '_model.pth'
         self.model.load_state_dict(torch.load(f_path))
         print('Model Loaded')
 
 
+    '''
+    Function: step
+    Params:
+        obs: observation
+        mask: mask to use 
+
+    return: state estimation grid
+    
+    1. Estimate the state 
+    2. Run the RNN to get the state estimate grid with the likelihood
+    '''
     def step(self, obs, mask):
         with torch.no_grad():
             self.model.eval()
@@ -177,6 +284,16 @@ class DynamicAutoEncoder:
 
         return state_est_grid
     
+     
+    '''
+    Function: output_image
+    Params:
+        state_est_grid: size of the state estimation grid
+
+    return: the state estimation grid image 
+    
+    1. returns the image of the state estimation grid
+    '''
     def output_image(self, state_est_grid, size=(1200,400)):
         img = state_est_grid.data.cpu().numpy().squeeze()
 
@@ -193,7 +310,22 @@ class DynamicAutoEncoder:
         img_resized = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
         return img_resized
 
+
+
+    '''
+    Function: update
+    Params:
+        memory: list of observations and state 
+        n_batch: sequence batch for the memory sample
+        n_window: length of the sample window
+
+    return: (loss_val, loss1_val, loss2_val, O_np_val)
+        loss_val:
+        loss1_val: 
+        loss2_val:
+        O_np_val: 
     
+    '''    
     def update(self, memory, n_batch, n_window, update=True):
         
 
@@ -282,25 +414,92 @@ class DynamicAutoEncoder:
         return 0, 0, 0, 0
 
 
+
+'''
+class: ImageStreamWriter
+inherits: none 
+Description: 
+'''
 class ImageStreamWriter:
 
+    '''
+    Function: Constructor for ImageStreamWriter
+    Params:
+        f_path: video file name to write to
+        fps: fps of the video file
+        image_size: image size of each frame in the video
+    
+    return: none 
+    
+    1. sets up the video writer to be able to write the sequence of images  as
+        a video file
+    '''
     def __init__(self, f_path, fps, image_size):
         self.writer = cv2.VideoWriter(f_path, cv2.VideoWriter_fourcc(*"MJPG"), fps, image_size)
 
+
+    '''
+    Function: write_image_frame
+    Params:
+        image_frame: image frame to write to the video file
+
+    return: none
+    
+    1. writes the image to the video file
+    '''
     def write_image_frame(self, image_frame):
         self.writer.write(image_frame)
 
+
+    '''
+    Function: close
+    Params: none
+
+    return: none
+    
+    1. releases/closes the video writer
+    '''
     def close(self):
         self.writer.release()
 
 
+
+'''
+Function: render
+Params: 
+    window_name: name of the window to display the images to 
+    image: current image to display 
+    wait_time: time for next block of code to execute/image to be displayed for
+
+return: none
+
+1. display/render the image to the screen
+'''
 def render(window_name, image, wait_time):
     cv2.imshow(window_name, image)
     cv2.waitKey(wait_time)
 
 
 
+
+'''
+class: Vehicle
+inherits: none 
+Description: 
+'''
 class Vehicle:
+    
+    '''
+    Function: Constructor for Vehicle
+    Params:
+        n_time_windows: number of time windows
+        grid_size: grid size for the state
+        planner_type: the planner type
+    
+    return: none 
+    
+    1. sets up the appropriate objects and their values for the Vehicle class
+    '''    
     def __init__(self, n_time_windows=128, grid_size=(64, 64), planner_type='Default'):
 
         self.grid_size = grid_size
@@ -314,7 +513,16 @@ class Vehicle:
         ### Planenr type ###
         self.planner_type = planner_type
 
-
+    '''
+    Function: full_mask
+    Params: none
+    
+    return: 
+        mask: the mask created
+        img_resized: resized image with area interpolation
+    
+    1. generates the mask and image
+    '''  
     def full_mask(self):
         mask = np.ones(self.grid_size)
 
@@ -325,6 +533,17 @@ class Vehicle:
         return mask, img_resized
 
 
+    '''
+    Function: generate_a_random_trajectory
+    Params: 
+        state_est_map: state estimation map
+    
+    return: 
+        mask: the modified mask 
+        img_resized: resized image with area interpolation
+    
+    1. Generate a random trajectory based on the action sets 
+    '''  
     def generate_a_random_trajectory(self, stat_est_map=None):
 
         ACTION_SET = self.action_set
@@ -346,6 +565,19 @@ class Vehicle:
         return mask, img_resized
 
 
+    '''
+    Function: plan_a_trajectory
+    Params: 
+        state_est_map: state estimation map
+        n_sample: number of samples to sample trajectory off of
+        action_param: action params for the trajectory
+    
+    return: 
+        mask: the modified mask 
+        img_resized: resized image with area interpolation
+    
+    1. Generate a trajectory based on state map and action sample set
+    '''  
     def plan_a_trajectory(self, stat_est_map, n_sample, action_param):
         with torch.no_grad():
 
@@ -463,6 +695,16 @@ class Vehicle:
 
 
             
+
+'''
+Function: main
+Params: none
+
+return: none
+
+1. used for testing
+2. new_tracjectory is not a valid function of vehicle (NOTE, NEEDS TO BE FIXED)
+'''
 def main():
     vehicle = Vehicle()
     n_sample = 100

@@ -1,3 +1,11 @@
+'''
+environment.py
+author: Hyung Jin
+date: 01/13/2020
+'''
+
+
+#modules to import
 import torch
 from torch.distributions.categorical import Categorical
 from torch import nn
@@ -22,8 +30,33 @@ from memory import SingleTrajectoryBuffer
 
 T_EVAL = 30000 + 1000
 
+
+
+
+'''
+#Notes: 
+'''
+
+
+'''
+class: FireEnvironment
+inherits: None 
+Description: 
+'''
 class FireEnvironment:
 
+    
+    '''
+    Function: Constructor for FireEnvironment 
+    Params:
+        w: map width
+        h: map height 
+    
+    return: none 
+    
+    1. Set up state variables 
+    2. Set up state observation and transition models 
+    '''
     def __init__(self, w, h, for_eval=False):
 
         self.map_width = w
@@ -75,6 +108,17 @@ class FireEnvironment:
         self.if_use_saved_eval = for_eval
 
 
+
+    '''
+    Function: sample_gridmap_from_fire_dist
+    Params:
+        fire_dist: fire matrix
+    
+    return: tensor 
+    
+    1. Create a categorial distributionand sample the grid map from the 
+        fire distribution 
+    '''
     def sample_gridmap_from_fire_dist(self, fire_dist):
         '''
         fire_dist : (3 x Width X Height)
@@ -88,6 +132,15 @@ class FireEnvironment:
         onehot_grid_map.scatter_(2, grid_map, 1)
         return onehot_grid_map.permute(2, 0, 1)
 
+
+    '''
+    Function: render
+    Params: none
+
+    return: none
+
+    1. display/render the image to the screen
+    '''
     def render(self):
         img_state = self.realization_state.data.permute(1,2,0).cpu().numpy().squeeze()
         img_obs = self.observed_state.data.cpu().numpy().squeeze()
@@ -102,6 +155,16 @@ class FireEnvironment:
         cv2.imshow("image", img_resized)
         cv2.waitKey(1)
 
+
+    '''
+    Function: output_image
+    Params:
+        size: size of the image 
+
+    return: the image state
+    
+    1. returns the image of the states
+    '''
     def output_image(self, size=(1200,400)):
         img_state = self.realization_state.data.permute(1,2,0).cpu().numpy().squeeze()
         img_obs = self.observed_state.data.cpu().numpy().squeeze()
@@ -116,6 +179,15 @@ class FireEnvironment:
         return img_resized
 
 
+    '''
+    Function: reset
+    Params: none
+
+    return: the reset observations and states
+    
+    1. Set the observations and state to be reset to either a saved value 
+        or initial distribution 
+    '''
     def reset(self):
         self.t = 0
         if self.if_use_saved_eval:
@@ -133,6 +205,18 @@ class FireEnvironment:
 
         return self.masked_observation, self.observed_state, self.realization_state
 
+
+    '''
+    Function: step
+    Params:
+        obs: observation
+        mask: mask to use 
+
+    return: state estimation grid
+    
+    1. Estimate the state 
+    2. Run the RNN to get the state estimate grid with the likelihood
+    '''
     def step(self, obs_mask=None):
         with torch.no_grad():
             if self.if_use_saved_eval:
@@ -188,6 +272,16 @@ class FireEnvironment:
 
         return self.masked_observation, self.observed_state, self.realization_state, reward, info
 
+
+    '''
+    Function: Observe
+    Params: none
+
+    return: the observed onehot map 
+    
+    1. Create a categorial distributionand sample the realization state and
+        observation matrix 
+    '''
     def observe(self):
         prob_to_sample = torch.unsqueeze(self.realization_state.clone().detach().permute(1, 2, 0).reshape(-1, 3),2)
         #print(prob_to_sample.size(), self.observation_matrix.size()) 
@@ -203,6 +297,15 @@ class FireEnvironment:
         return onehot_obs_map
 
 
+    '''
+    Function: save_evaluation_memory
+    Params: none
+
+    return: none
+    
+    1. call the step function to run the RNN for state estimate 
+    2. set the memory evaluations nad observations 
+    '''
     def save_evaluation_memory(self):
 
         for t in tqdm.tqdm(range(T_EVAL)):

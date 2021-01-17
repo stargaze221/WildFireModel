@@ -177,7 +177,7 @@ def demo5_ComparePolicies(setting, env):
             list_rewards = []
             writer.add_scalar('perform/rewards', avg_reward, i)
 
-            avg_new_fire_count = np.mean(np.array(list_new_fire_count))
+            avg_new_fire_count = max(np.mean(np.array(list_new_fire_count)), 1) # to avoid division by zero
             list_new_fire_count = []
             writer.add_scalar('perform/new_fire_counts', avg_new_fire_count, i)
             writer.add_scalar('perform/pc_coverd_new_fire', avg_reward/avg_new_fire_count, i)

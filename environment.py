@@ -212,7 +212,7 @@ class FireEnvironment:
         obs: observation
         mask: mask to use 
 
-    return: state estimation grid
+    return: state estimation grids, reward and info
     
     1. Estimate the state 
     2. Run the RNN to get the state estimate grid with the likelihood

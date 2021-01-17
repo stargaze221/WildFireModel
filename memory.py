@@ -103,8 +103,7 @@ inherits: None
 Description: 
 '''
 class ReplayMemory(object):
-
-        '''
+    '''
     Function: Constructor for SingleTrajectoryBuffer 
     Params:
         capacity = capacity to set for the object

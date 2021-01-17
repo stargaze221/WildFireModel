@@ -43,9 +43,7 @@ class: FireEnvironment
 inherits: None 
 Description: 
 '''
-class FireEnvironment:
-
-    
+class FireEnvironment: 
     '''
     Function: Constructor for FireEnvironment 
     Params:
